@@ -77,5 +77,26 @@ var Tournament = (function () {
     };
   }
 
-  return { schedule: schedule, timing: timing, minimumMinutes: minimumMinutes };
+  function matchesFor(rounds, player) {
+    var matches = [], match = 0;
+    rounds.forEach(function (pairs, round) {
+      pairs.forEach(function (pair, table) {
+        var side = pair.indexOf(player);
+        if (side !== -1) matches.push({ round: round, table: table + 1, opponent: pair[1 - side], match: match });
+        match++;
+      });
+    });
+    return matches;
+  }
+
+  function checkScore(scores, target, timed) {
+    if (scores.some(function (score) { return score === ''; })) return 'empty';
+    if (scores.some(function (score) { return !/^\d{1,2}$/.test(score); })) return 'number';
+    var hi = Math.max(scores[0], scores[1]), lo = Math.min(scores[0], scores[1]);
+    if (hi === lo) return 'tie';
+    if (!timed && !((hi === target && lo <= target - 2) || (hi > target && hi - lo === 2))) return 'time';
+    return null;
+  }
+
+  return { schedule: schedule, timing: timing, minimumMinutes: minimumMinutes, matchesFor: matchesFor, checkScore: checkScore };
 })();

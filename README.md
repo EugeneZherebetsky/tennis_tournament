@@ -1,8 +1,8 @@
 # Table tennis mini-tournament
 
 A dependency-free web app for running a round-robin table
-tennis tournament (UI in Russian). Enter names and scores; standings update
-automatically. Everything is saved in the browser's `localStorage`.
+tennis tournament (UI in Russian). Confirm match results to update the rankings.
+The organizer's tournament is saved in the browser's `localStorage`.
 
 - **Tournament setup**: 2–24 players and 1–12 tables. The schedule assigns each
   pair one match and keeps rounds within the table limit.
@@ -17,6 +17,12 @@ automatically. Everything is saved in the browser's `localStorage`.
 - **Works offline** once opened (service worker) and can be added to the home
   screen (installable web app).
 - Ranking: wins → head-to-head among tied players → point difference → points scored.
+- **Player view**: choose a name to see the current assignment, next opponent,
+  and personal schedule. The round, personal matches, and standings have quick links.
+- **Shared standings**: opt in under **Настройки, участники и публикация**. The
+  link shows the event, scores, and timer with automatic updates. The scorekeeper
+  browser retains the edit key. Its **Остановить публикацию** button closes the
+  shared link. A link expires after seven days without updates.
 
 ## Files
 `index.html` (page) · `styles.css` · `tournament.js` (schedule and timing) · `app.js` · `sw.js` (offline cache) ·
@@ -26,20 +32,16 @@ automatically. Everything is saved in the browser's `localStorage`.
 keep getting the cached copy. Offline mode only works over http(s), not when
 opening the file from disk.
 
-## Hosting on a subdomain (GitHub Pages)
+## Deployment
 
-1. Merge this branch into `main`.
-2. Repository → **Settings → Pages** → Source: *Deploy from a branch*,
-   Branch: `main`, folder `/ (root)`.
-3. In the same page set **Custom domain** to e.g. `tennis.example.com`
-   (GitHub then commits a `CNAME` file) and tick **Enforce HTTPS** once the
-   certificate is issued.
-4. At your DNS provider add a record:
-   `tennis  CNAME  eugenezherebetsky.github.io.`
-5. Optional but recommended: verify the domain under your GitHub account
-   (Settings → Pages → Verified domains) to prevent takeover.
+Cloudflare Pages deploys `main` to `tennis.ezherebetskii.com`. The project
+uses the repository root as its output directory and runs `exit 0` for its build.
+Deployments with sharing need the `TENNIS_DB` D1 binding to the database created
+with `database/boards.sql`. The `/api/boards` endpoint reports whether the
+scoreboard database is available. Static hosting, including GitHub Pages,
+supports local tournaments without shared standings.
 
-Alternatives: Cloudflare Pages / Netlify / Vercel (connect the repo, no build
-command, output dir `/`), or copy `index.html` to any static web server.
+Run the scheduling, scoring, and scoreboard API checks with Node 22+
+using `node --test tournament.test.cjs boards.test.mjs`.
 
 See [IMPROVEMENTS.md](IMPROVEMENTS.md) for the analysis and roadmap.

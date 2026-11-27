@@ -1,8 +1,8 @@
 // Offline support: every file is precached and served cache-first, so the page
 // opens instantly with no signal. Bump VERSION whenever any file changes;
 // visitors get the new version on their next visit after it has downloaded.
-var VERSION = 'tt-2026-11-27-2';
-var ASSETS = ['./', 'index.html', 'styles.css', 'tournament.js', 'app.js', 'manifest.webmanifest', 'icon.svg',
+var VERSION = 'tt-2026-11-27-3';
+var ASSETS = ['./', 'index.html', 'styles.css', 'tournament.js', 'app.js', 'shared.js', 'manifest.webmanifest', 'icon.svg',
   'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png'];
 
 self.addEventListener('install', function (e) {
@@ -21,7 +21,8 @@ self.addEventListener('activate', function (e) {
 
 self.addEventListener('fetch', function (e) {
   var r = e.request;
-  if (r.method !== 'GET' || new URL(r.url).origin !== location.origin) return;
+  var url = new URL(r.url);
+  if (r.method !== 'GET' || url.origin !== location.origin || url.pathname.indexOf('/api/') === 0) return;
   e.respondWith(caches.open(VERSION).then(function (c) {
     return c.match(r, { ignoreSearch: true }).then(function (hit) {
       if (hit) return hit;

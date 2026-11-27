@@ -3,11 +3,13 @@
 
   // Match formats. `play` is the time limit per match in minutes.
   var FORMATS = {
-    11: { target: 11, play: 8, serve: 'двух', deuce: '10:10', ex: '11:9 или 13:11', exScore: '11 и 8', word: 'очков' },
-    21: { target: 21, play: 12, serve: 'пяти', deuce: '20:20', ex: '21:18 или 23:21', exScore: '21 и 17', word: 'очка' }
+    11: { target: 11, play: 8, serve: 'двух', deuce: '10:10', ex: '11:9 или 13:11', word: 'очков' },
+    21: { target: 21, play: 12, serve: 'пяти', deuce: '20:20', ex: '21:18 или 23:21', word: 'очка' }
   };
   var KEY = 'tt-tournament-v3', TKEY = 'tt-timer-v2';
   var MIN_PLAYERS = 2, MAX_PLAYERS = 24, MAX_TABLES = 12, MAX_MINUTES = 10080;
+  var boardId = new URLSearchParams(location.search).get('board');
+  var readOnly = boardId !== null, sharing;
 
   function $(id) { return document.getElementById(id); }
 
@@ -52,17 +54,18 @@
           v = raw.scores[j][k];
           if (isScalar(v) && /^\d{0,2}$/.test(String(v).trim())) d.scores[j][k] = String(v).trim();
         }
+        if (raw.scores[j][2] === true) d.scores[j][2] = true;
       }
     }
     return d;
   }
 
-  var saved = load(KEY);
-  var data = sanitize(saved || load('tt-tournament-5-v2') || load('tt-tournament-5-v1'));
+  var saved = readOnly ? null : load(KEY);
+  var data = sanitize(readOnly ? null : saved || load('tt-tournament-5-v2') || load('tt-tournament-5-v1'));
   var ROUNDS = Tournament.schedule(data.players, data.tables);
   var PAIRS = ROUNDS.flat();
   var PLAN = Tournament.timing(ROUNDS.length, fmt().play, data.minutes);
-  function save() { store(KEY, data); info(); }
+  function save() { store(KEY, data); info(); if (sharing) sharing.changed(); }
   function fmt() { return FORMATS[data.target] || FORMATS[11]; }
   function name(i) { return String(data.names[i] || '').trim() || 'П' + (i + 1); }
 
@@ -77,7 +80,9 @@
     if (a === b) return { ok: false, msg: 'Ничьей быть не может — нужен победитель.' };
     hi = Math.max(a, b); lo = Math.min(a, b);
     res = { ok: true, a: a, b: b, w: a > b ? 0 : 1, note: '', warn: false };
-    if (hi > t && hi - lo > 2) {
+    if (s[2] === true) {
+      res.note = 'по лимиту времени';
+    } else if (hi > t && hi - lo > 2) {
       res.warn = true;
       res.note = 'проверьте счёт: после ' + (t - 1) + ':' + (t - 1) + ' игра идёт до перевеса в 2 очка.';
     } else if (!((hi === t && lo <= t - 2) || (hi > t && hi - lo === 2))) {
@@ -112,12 +117,12 @@
         label = $('p' + j + '-' + k);
         label.textContent = name(p[k]);
         label.className = 'player' + (r.ok && r.w === k ? ' win' : '');
-        $('s' + j + '-' + k).setAttribute('aria-label', 'Очки: ' + name(p[k]));
+        $('s' + j + '-' + k).textContent = data.scores[j][k] || '—';
       }
       st = $('state' + j);
       if (r.ok) {
         st.className = 'state' + (r.warn ? ' invalid' : r.note ? ' note' : '');
-        st.textContent = 'Победа: ' + name(p[r.w]) + (r.note ? ' · ' + r.note : '');
+        st.textContent = 'Записано · ' + name(p[r.w]) + ' · ' + r.a + ':' + r.b + (r.note ? ' · ' + r.note : '');
         done++;
         for (k = 0; k < 2; k++) {
           z = stat[p[k]];
@@ -129,6 +134,8 @@
         st.className = 'state' + (r.empty ? '' : ' invalid');
         st.textContent = r.empty ? 'Ожидает результата' : r.msg;
       }
+      var edit = $('edit' + j);
+      if (edit) edit.textContent = r.ok ? 'Изменить результат' : 'Внести результат';
     }
 
     // Head-to-head: a win counts only if both players finished level on wins.
@@ -153,6 +160,8 @@
     }
     $('progress').textContent = 'Сыграно ' + done + ' из ' + M + ' матчей. ' + (done === M ? 'Турнир завершён.' : 'Рейтинг предварительный.');
     $('result').textContent = done === M ? (leaders.length === 1 ? '🏆 Победитель: ' + leaders[0] : 'Первое место делят: ' + leaders.join(', ')) : '';
+    updatePlayerOptions();
+    renderPlayer();
   }
 
   // ---------- Format-dependent texts ----------
@@ -181,7 +190,7 @@
     setLines($('tlmain'), durationLabel(PLAN.warm) + '–' + durationLabel(end) + ' мин', 'Раундов: ' + ROUNDS.length);
     setLines($('tlend'), durationLabel(end) + '–' + total + ' мин', 'Итоги');
     $('schedinfo').textContent = 'Время от начала турнира. Игра: ' + play + ' мин на раунд. Смена игроков и запись счёта: 2 мин.';
-    $('scoreinfo').textContent = 'Имена участников берутся из списка выше. В поля рядом с именами внесите итоговые очки (например, ' + f.exScore + ').';
+    $('scoreinfo').textContent = 'Матч до ' + f.target + ' ' + f.word + '.';
     $('rule2').textContent = 'Матч состоит из одной партии до ' + f.target + ' ' + f.word +
       '. Для обычной победы нужен перевес минимум в два очка (например, ' + f.ex + ').';
     $('rule3').textContent = 'Первую подачу определите жребием. Подача переходит после каждых ' + f.serve +
@@ -217,6 +226,11 @@
       var legacy = load('tt-timer-v1');
       if (legacy && legacy.target === data.target) t = Object.assign({ plan: f.plan }, legacy);
     }
+    return restoreTimer(t);
+  }
+
+  function restoreTimer(t) {
+    var f = freshTimer();
     if (!t || t.plan !== f.plan) return f;
     var i = Number(t.i);
     if (!(i >= 0 && i < P.length && Math.floor(i) === i)) return f;
@@ -226,8 +240,12 @@
     else f.left = Math.max(0, Math.min(dur(i), Number(t.left) || 0));
     return f;
   }
-  var T = loadTimer();
-  function saveTimer() { store(TKEY, T); }
+  var T = readOnly ? freshTimer() : loadTimer();
+  function saveTimer() {
+    if (readOnly) return;
+    store(TKEY, T);
+    if (sharing) sharing.changed();
+  }
   function remaining() { return T.running ? Math.max(0, T.end - Date.now()) : T.left; }
   function started() { return T.running || T.i > 0 || T.left < dur(0); }
   function finished() { return !T.running && T.i === P.length - 1 && T.left === 0; }
@@ -289,8 +307,8 @@
   function two(n) { return (n < 10 ? '0' : '') + n; }
   function clock(ms) { var s = Math.ceil(ms / 1000); return two(Math.floor(s / 60)) + ':' + two(s % 60); }
 
-  var lastRound = -1;
-  function renderTimer(scroll) {
+  var lastRound = -1, lastPhase;
+  function renderTimer() {
     var ph = P[T.i], rem = remaining(), bar = $('timer'), btn = $('tstart'), cur;
     var next = P[T.i + 1];
     $('tphase').textContent = ph.label;
@@ -304,14 +322,24 @@
     document.title = (T.running ? clock(rem) + ' · ' : '') + 'Мини-турнир по настольному теннису';
     cur = started() ? ph.r : -1;
     if (cur !== lastRound) {
-      if (lastRound >= 0) $('round' + lastRound).classList.remove('current');
-      if (cur >= 0) $('round' + cur).classList.add('current');
-    }
-    if (scroll && cur >= 0 && cur !== lastRound && ph.kind === 'play') {
-      var a = document.activeElement;
-      if (!a || a.tagName !== 'INPUT') $('round' + cur).scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (lastRound >= 0) {
+        var previous = $('round' + lastRound);
+        previous.classList.remove('current');
+        $('rounds').insertBefore(previous, $('round' + (lastRound + 1)));
+      }
+      if (cur >= 0) {
+        var current = $('round' + cur);
+        current.classList.add('current');
+        $('rounds').prepend(current);
+      }
     }
     lastRound = cur;
+    var phase = T.i + '/' + finished();
+    if (phase !== lastPhase) {
+      $('jump-now').href = cur < 0 ? '#schedule' : '#round' + cur;
+      renderPlayer();
+      lastPhase = phase;
+    }
   }
 
   function tick() {
@@ -325,16 +353,16 @@
     rem = remaining();
     if (T.running && P[T.i].kind === 'play' && rem <= 60000 && T.warned !== T.i) {
       T.warned = T.i;
-      if (!moved) { signal('warn'); saveTimer(); }
+      if (!moved && !readOnly) { signal('warn'); saveTimer(); }
     }
-    if (moved || ended) { signal(ended ? 'end' : P[T.i].kind); saveTimer(); syncLock(); }
-    renderTimer(moved);
+    if ((moved || ended) && !readOnly) { signal(ended ? 'end' : P[T.i].kind); saveTimer(); syncLock(); }
+    renderTimer();
   }
 
   function goTo(i) {
     T.i = i; T.warned = -1;
     if (T.running) T.end = Date.now() + dur(i); else T.left = dur(i);
-    saveTimer(); renderTimer(true);
+    saveTimer(); renderTimer();
   }
 
   function bindTimer() {
@@ -342,22 +370,28 @@
       audio();
       var first = !started();
       if (T.running) { T.left = remaining(); T.running = false; }
-      else if (!finished()) { T.end = Date.now() + T.left; T.running = true; if (first) signal('warn'); }
-      saveTimer(); syncLock(); renderTimer(true);
+      else if (!finished()) {
+        T.end = Date.now() + T.left; T.running = true;
+        if (first) { $('organizer').open = false; signal('warn'); }
+      }
+      saveTimer(); syncLock(); renderTimer();
     });
     $('tskip').addEventListener('click', function () {
       audio();
+      $('timer-controls').open = false;
       if (T.i < P.length - 1) goTo(T.i + 1);
       else { T.running = false; T.left = 0; saveTimer(); syncLock(); renderTimer(); }
     });
     $('tprev').addEventListener('click', function () {
       audio();
+      $('timer-controls').open = false;
       // Like a media player: first press restarts the stage, second goes back one.
       if (dur(T.i) - remaining() > 3000 || T.i === 0) goTo(T.i);
       else goTo(T.i - 1);
     });
     $('treset').addEventListener('click', function () {
       if (!started() || window.confirm('Сбросить таймер к началу турнира?')) {
+        $('timer-controls').open = false;
         T = freshTimer(); saveTimer(); syncLock(); renderTimer();
       }
     });
@@ -389,6 +423,54 @@
   var roundTemplate = $('round0').cloneNode(false);
   var headTemplate = $('rtime0').parentElement.cloneNode(true);
   var matchTemplate = document.querySelector('.match').cloneNode(true);
+  var playerKey = readOnly ? 'tt-view-player' : 'tt-my-player';
+  var selectedPlayer = load(playerKey);
+
+  function updatePlayerOptions() {
+    var picker = $('my-player');
+    if (!inRange(selectedPlayer, 0, data.players - 1)) selectedPlayer = null;
+    while (picker.options.length > data.players + 1) picker.remove(picker.options.length - 1);
+    var labels = data.names.map(function (_, i) { return name(i); });
+    labels.forEach(function (label, i) {
+      var option = picker.options[i + 1];
+      if (!option) {
+        option = document.createElement('option');
+        option.value = i;
+        picker.add(option);
+      }
+      option.textContent = labels.indexOf(label) === labels.lastIndexOf(label) ? label : label + ' · №' + (i + 1);
+    });
+    picker.value = selectedPlayer === null ? '' : String(selectedPlayer);
+  }
+
+  function fixtureLink(fixture) {
+    var link = make('a', 'Раунд ' + (fixture.round + 1) + ' · Стол ' + fixture.table + ' · ' + name(fixture.opponent));
+    link.href = '#match' + fixture.match;
+    return link;
+  }
+
+  function renderPlayer() {
+    var card = $('my-current'), list = $('my-fixtures');
+    card.replaceChildren();
+    list.replaceChildren();
+    $('my-all').hidden = selectedPlayer === null;
+    if (selectedPlayer === null) return;
+    var matches = Tournament.matchesFor(ROUNDS, selectedPlayer);
+    var ph = P[T.i], current = matches.find(function (match) { return match.round === ph.r; });
+    var next = matches.find(function (match) { return match.round > ph.r && !assess(data.scores[match.match]).ok; });
+    if (ph.kind === 'final' || finished()) card.append(make('strong', 'Игры завершены. Итоги в таблице.'));
+    else if (current) card.append(make('strong', ph.kind === 'change' ? 'Завершённый раунд' : 'Сейчас'), fixtureLink(current));
+    else if (ph.kind !== 'warm') card.append(make('strong', 'Сейчас вы отдыхаете.'));
+    if (next && ph.kind !== 'final' && !finished()) card.append(make('strong', 'Следующий матч'), fixtureLink(next));
+
+    matches.forEach(function (match) {
+      var item = document.createElement('li');
+      item.append(fixtureLink(match));
+      var score = data.scores[match.match];
+      if (assess(score).ok) item.append(make('span', ' · ' + score[0] + ':' + score[1]));
+      list.append(item);
+    });
+  }
 
   function renderSchedule() {
     $('names').textContent = '';
@@ -397,7 +479,7 @@
       label.firstChild.nodeValue = 'Игрок ' + (i + 1);
       label.htmlFor = input.id = 'name' + i;
       $('names').appendChild(label);
-      bindName(i);
+      if (!readOnly) bindName(i);
     });
     var rounds = document.createDocumentFragment(), matchIndex = 0;
     ROUNDS.forEach(function (pairs, r) {
@@ -412,21 +494,33 @@
       pairs.forEach(function (_, table) {
         var match = matchTemplate.cloneNode(true);
         var j = matchIndex++;
+        match.id = 'match' + j;
         match.querySelector('.tabletag').textContent = 'Стол ' + (table + 1);
         match.querySelector('.state').id = 'state' + j;
         match.querySelectorAll('.matchrow').forEach(function (row, k) {
-          var label = row.querySelector('label'), input = row.querySelector('input');
+          var label = make('span', ''), score = make('span', '');
           label.id = 'p' + j + '-' + k;
-          label.htmlFor = input.id = 's' + j + '-' + k;
+          score.id = 's' + j + '-' + k;
+          score.className = 'score-value';
+          row.replaceChildren(label, score);
         });
+        if (!readOnly) {
+          var edit = make('button', 'Внести результат');
+          edit.id = 'edit' + j;
+          edit.type = 'button';
+          edit.className = 'match-edit';
+          edit.setAttribute('aria-describedby', 'p' + j + '-0 p' + j + '-1');
+          edit.addEventListener('click', function () { editScore(j, r, table + 1); });
+          match.appendChild(edit);
+        }
         matches.appendChild(match);
       });
       round.append(head, matches);
       rounds.appendChild(round);
     });
     $('rounds').replaceChildren(rounds);
-    PAIRS.forEach(function (_, j) { bindScore(j, 0); bindScore(j, 1); });
     lastRound = -1;
+    lastPhase = undefined;
   }
 
   function previewSetup() {
@@ -459,7 +553,7 @@
       var structureChanged = setup.players !== data.players || setup.tables !== data.tables;
       var resetTimer = structureChanged || plan.total !== PLAN.total;
       var removedResults = PAIRS.some(function (pair, j) {
-        return pair[1] >= setup.players && data.scores[j].some(Boolean);
+        return pair[1] >= setup.players && data.scores[j].slice(0, 2).some(Boolean);
       });
       var warnings = [];
       if (removedResults) warnings.push('Счёт матчей удалённых игроков будет удалён.');
@@ -497,10 +591,54 @@
     e.value = data.names[i];
     e.addEventListener('input', function () { data.names[i] = e.value; update(); save(); });
   }
-  function bindScore(j, k) {
-    var e = $('s' + j + '-' + k);
-    e.value = data.scores[j][k];
-    e.addEventListener('input', function () { data.scores[j][k] = e.value.trim(); update(); save(); });
+  var editedMatch;
+  function editScore(j, round, table) {
+    editedMatch = j;
+    var pair = PAIRS[j], score = data.scores[j];
+    $('score-context').textContent = 'Раунд ' + (round + 1) + ' · Стол ' + table + ' · До ' + data.target;
+    $('score-name-a').textContent = name(pair[0]);
+    $('score-name-b').textContent = name(pair[1]);
+    $('score-a').value = score[0];
+    $('score-b').value = score[1];
+    $('score-timed').checked = score[2] === true;
+    $('score-clear').hidden = !score.slice(0, 2).some(Boolean);
+    $('score-error').textContent = '';
+    $('score-dialog').showModal();
+    $('score-a').select();
+  }
+
+  function bindScoreDialog() {
+    var dialog = $('score-dialog');
+    $('score-cancel').addEventListener('click', function () { dialog.close(); });
+    $('score-clear').addEventListener('click', function () {
+      if (!window.confirm('Удалить результат этого матча?')) return;
+      data.scores[editedMatch] = ['', ''];
+      dialog.close();
+      update();
+      save();
+      $('score-announcement').textContent = 'Результат матча удалён.';
+    });
+    $('score-form').addEventListener('submit', function (event) {
+      event.preventDefault();
+      var score = [$('score-a').value.trim(), $('score-b').value.trim()];
+      var timed = $('score-timed').checked;
+      var error = Tournament.checkScore(score, data.target, timed);
+      if (error) {
+        $('score-error').textContent = {
+          empty: 'Введите очки обоих участников.',
+          number: 'Введите целые числа от 0 до 99.',
+          tie: 'При равном счёте разыграйте решающее очко.',
+          time: 'Проверьте счёт. Если игра закончилась по сигналу, отметьте лимит времени.'
+        }[error];
+        return;
+      }
+      if (timed) score.push(true);
+      data.scores[editedMatch] = score;
+      dialog.close();
+      update();
+      save();
+      $('score-announcement').textContent = $('state' + editedMatch).textContent;
+    });
   }
   function bindFormat() {
     var radios = document.querySelectorAll('input[name="target"]'), r;
@@ -520,29 +658,86 @@
     for (r = 0; r < radios.length; r++) radios[r].addEventListener('change', change);
   }
 
-  renderSchedule();
-  bindSetup();
-  bindFormat();
-  $('print').addEventListener('click', function () { window.print(); });
-  $('reset').addEventListener('click', function () {
-    if (window.confirm('Удалить все результаты? Имена участников сохранятся.')) {
-      data.scores = blankScores(PAIRS.length);
-      for (var j = 0; j < PAIRS.length; j++) for (var k = 0; k < 2; k++) $('s' + j + '-' + k).value = '';
-      update(); save();
-    }
-  });
-  window.addEventListener('online', info);
-  window.addEventListener('offline', info);
+  function showSharedBoard(text, available) {
+    var status = $('view-status');
+    status.hidden = false;
+    if (status.textContent !== text) status.textContent = text;
+    ['match-toolbar', 'my-matches', 'schedule', 'standings', 'rules-panel'].forEach(function (id) {
+      $(id).hidden = !available;
+    });
+  }
 
+  function receiveSharedBoard(snapshot) {
+    var next = sanitize(snapshot.data);
+    var rebuild = next.players !== data.players || next.tables !== data.tables || !$('match0');
+    var settingsChanged = rebuild || data.target !== next.target || data.minutes !== next.minutes;
+    data = next;
+    if (rebuild) {
+      ROUNDS = Tournament.schedule(data.players, data.tables);
+      PAIRS = ROUNDS.flat();
+      renderSchedule();
+    }
+    if (settingsChanged) {
+      PLAN = Tournament.timing(ROUNDS.length, fmt().play, data.minutes);
+      P = phases();
+      applyFormat();
+    }
+    T = restoreTimer(snapshot.timer);
+    update();
+    tick();
+  }
+
+  renderSchedule();
+  $('my-player').addEventListener('change', function (event) {
+    selectedPlayer = event.target.value === '' ? null : Number(event.target.value);
+    store(playerKey, selectedPlayer);
+    renderPlayer();
+  });
+  $('standings-detail').addEventListener('click', function () {
+    var open = $('standings').classList.toggle('show-details');
+    $('standings-detail').setAttribute('aria-expanded', open);
+    $('standings-detail').textContent = open ? 'Кратко' : 'Подробности';
+    $('standings-key').hidden = !open;
+  });
   applyFormat();
   update();
-  info();
-  $('actions').hidden = false;
-  $('format').hidden = false;
+  $('standings-detail').hidden = false;
+  $('standings-key').hidden = true;
+  $('standings').classList.add('player-standings');
   $('timer').hidden = false;
-  bindTimer();
-  saveTimer();
-  tick();
-  syncLock();
+  if (readOnly) {
+    $('tstart').hidden = true;
+    $('timer-controls').hidden = true;
+    $('organizer').hidden = true;
+    showSharedBoard('Загружаем общую таблицу…', false);
+    SharedBoard.viewer(boardId, receiveSharedBoard, showSharedBoard);
+    setInterval(tick, 250);
+  } else {
+    bindSetup();
+    bindFormat();
+    bindScoreDialog();
+    $('print').addEventListener('click', function () { window.print(); });
+    $('reset').addEventListener('click', function () {
+      if (window.confirm('Удалить все результаты? Имена участников сохранятся.')) {
+        data.scores = blankScores(PAIRS.length);
+        update(); save();
+      }
+    });
+    window.addEventListener('online', info);
+    window.addEventListener('offline', info);
+    info();
+    $('actions').hidden = false;
+    $('format').hidden = false;
+    $('match-toolbar').hidden = false;
+    $('my-matches').hidden = false;
+    if (started()) $('organizer').open = false;
+    bindTimer();
+    saveTimer();
+    tick();
+    syncLock();
+    if (window.isSecureContext && window.crypto && crypto.randomUUID) {
+      sharing = SharedBoard.organizer(function () { return { data: data, timer: T }; }, load, store);
+    }
+  }
   if (document.readyState === 'complete') registerSW(); else window.addEventListener('load', registerSW);
 })();

@@ -47,3 +47,25 @@ test('the timing plan sums to the requested duration with whole-second match tim
   assert.equal(model.timing(7, 8, 31).games[0], 60);
   assert.equal(model.timing(7, 8, 30), null);
 });
+
+test('personal fixtures include each match in order, with its known table and score index', () => {
+  const rounds = model.schedule(5, 2);
+  const matches = model.matchesFor(rounds, 4);
+  assert.deepEqual(JSON.parse(JSON.stringify(matches)), [
+    { round: 1, table: 2, opponent: 1, match: 3 },
+    { round: 2, table: 2, opponent: 2, match: 5 },
+    { round: 3, table: 1, opponent: 0, match: 6 },
+    { round: 4, table: 2, opponent: 3, match: 9 }
+  ]);
+});
+
+test('a new completed match needs a legal game score or an explicit time-limit finish', () => {
+  assert.equal(model.checkScore(['', '8'], 11, false), 'empty');
+  assert.equal(model.checkScore(['10', '10'], 11, true), 'tie');
+  assert.equal(model.checkScore(['-2', '7'], 11, true), 'number');
+  assert.equal(model.checkScore(['9', '8'], 11, false), 'time');
+  assert.equal(model.checkScore(['9', '8'], 11, true), null);
+  assert.equal(model.checkScore(['12', '10'], 11, false), null);
+  assert.equal(model.checkScore(['12', '9'], 11, false), 'time');
+  assert.equal(model.checkScore(['21', '19'], 21, false), null);
+});

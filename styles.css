@@ -18,3 +18,137 @@
 .setup-fields input{display:block;margin-top:4px;font-size:16px}
 .matches{grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))}
 @media print{#setup-section{display:none!important}}
+
+.match-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding: 8px 0 5px;
+  background: var(--bg);
+}
+.match-toolbar .timerbar {
+  position: relative;
+  top: auto;
+  margin: 0;
+  padding: 8px 12px;
+  grid-template-columns: minmax(0,1fr) auto auto;
+  grid-template-areas: "info clock btns" "prog prog prog";
+  box-shadow: none;
+}
+.match-toolbar .tclock { font-size: clamp(24px, 5vw, 40px); }
+.match-toolbar .tbtns { align-items: center; gap: 5px; }
+.match-toolbar .tbtns button { min-height: 44px; padding: 5px 9px; }
+.tbtns .primary { flex: none; }
+#timer-controls summary,.match-nav a { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
+#timer-controls summary { justify-content: center; min-width: 44px; padding: 0 5px; font-size: 22px; }
+.timer-controls-menu {
+  position: absolute;
+  right: 8px;
+  top: calc(100% + 4px);
+  z-index: 1;
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 10px;
+  background: #123d43;
+}
+.match-nav { display: grid; grid-template-columns: repeat(3,1fr); gap: 6px; margin-top: 5px; }
+.match-nav a {
+  justify-content: center;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: none;
+}
+a:focus-visible,button:focus-visible,summary:focus-visible,select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+#schedule,#my-matches,#standings,.round,.match { scroll-margin-top: 135px; }
+.organizer,.rules-panel {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  margin-top: 15px;
+  padding: 0 12px;
+}
+.organizer > summary,.rules-panel > summary { cursor: pointer; padding: 12px 0; font-weight: 700; }
+.organizer > section { margin: 0 0 10px; }
+.rules-panel .rules { padding-bottom: 10px; }
+.player-picker select {
+  display: block;
+  width: 100%;
+  max-width: 340px;
+  min-height: 44px;
+  margin-top: 4px;
+  padding: 5px 9px;
+  border: 1px solid #adbec3;
+  border-radius: 8px;
+  background: white;
+  color: var(--ink);
+  font: 16px/1.5 system-ui, sans-serif;
+}
+.my-current:not(:empty) {
+  display: grid;
+  gap: 3px;
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 9px;
+  background: #e7f5ef;
+}
+.my-current strong:not(:first-child) { margin-top: 6px; }
+.my-current a,#my-fixtures a,.shared-notice a { color: var(--accent); overflow-wrap: anywhere; }
+#my-all summary { padding: 10px 0 0; cursor: pointer; color: var(--accent); }
+#my-fixtures { margin: 6px 0; padding-left: 20px; }
+#my-fixtures li { margin-top: 6px; }
+.score-value { justify-self: end; font-weight: 700; font-variant-numeric: tabular-nums; }
+.player.win { color: var(--accent); }
+.match-edit { width: 100%; min-height: 44px; margin-top: 8px; color: var(--accent); }
+.section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.section-heading button { min-height: 44px; padding: 4px 9px; }
+.wins-full { display: none; }
+.player-standings:not(.show-details) .wins-full { display: inline; }
+.player-standings:not(.show-details) .wins-short,
+.player-standings:not(.show-details) :is(th,td):not(:nth-child(1),:nth-child(2),:nth-child(4)) { display: none; }
+.player-standings:not(.show-details) table { min-width: 0; }
+#score-dialog {
+  width: min(450px,calc(100% - 24px));
+  max-height: 90dvh;
+  overflow: auto;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  color: var(--ink);
+}
+#score-dialog::backdrop { background: rgb(24 43 53 / .64); }
+.score-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+.score-fields label { font-weight: 700; overflow-wrap: anywhere; }
+.score-fields input { margin-top: 4px; min-height: 48px; text-align: center; font-size: 20px; }
+.time-finish { display: flex; align-items: center; gap: 8px; min-height: 44px; margin-top: 8px; }
+.time-finish input { width: 18px; height: 18px; accent-color: var(--accent); }
+#score-dialog button,#sharing button { min-height: 44px; }
+#score-error:empty { display: none; }
+.shared-notice { margin: 12px 0 0; color: var(--muted); font-size: 14px; }
+#share-link-label { margin-top: 8px; }
+.screen-reader { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+@media(max-width: 480px) {
+  .match-toolbar .timerbar { gap: 4px 6px; }
+  .match-toolbar .tbtns { gap: 0; }
+  .match-toolbar .tbtns .primary { padding-inline: 6px; font-size: 14px; }
+  #timer-controls summary { min-width: 34px; }
+  .tinfo span { font-size: 12px; }
+}
+@media(max-width: 360px) {
+  .match-toolbar .timerbar { grid-template-areas: "info clock" "btns btns" "prog prog"; }
+  .match-toolbar .tbtns .primary { flex: 1; }
+  #schedule,#my-matches,#standings,.round,.match { scroll-margin-top: 160px; }
+}
+@media print {
+  .match-toolbar,#standings-detail,.match-edit,#sharing,#my-matches,#score-dialog { display: none !important; }
+  .player-standings:not(.show-details) :is(th,td):not(:nth-child(1),:nth-child(2),:nth-child(4)) { display: table-cell; }
+  .player-standings:not(.show-details) .wins-short { display: inline; }
+  .player-standings:not(.show-details) .wins-full { display: none; }
+}

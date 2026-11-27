@@ -87,3 +87,19 @@ test('the result report includes all tables in schedule order and labels timed a
     ]
   });
 });
+
+test('a pending score survives reconnecting to the same local queue and is isolated by tournament', () => {
+  const queue = vm.runInNewContext(fs.readFileSync(require.resolve('./match-queue.js'), 'utf8') + '\nMatchQueue');
+  const data = new Map();
+  const storage = {
+    get length() { return data.size; }, key: i => [...data.keys()][i],
+    getItem: key => data.get(key) ?? null, setItem: (key, item) => data.set(key, item),
+    removeItem: key => data.delete(key)
+  };
+  queue.open(storage, 'board-a').put({ id: 'match-1', queued: 1, match: 0, score: ['11', '7'] });
+  const reopened = queue.open(storage, 'board-a');
+  assert.equal(reopened.list()[0].score.join(':'), '11:7');
+  assert.equal(queue.open(storage, 'board-b').list().length, 0);
+  reopened.remove(reopened.list()[0]);
+  assert.equal(reopened.list().length, 0);
+});

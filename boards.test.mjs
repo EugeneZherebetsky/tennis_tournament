@@ -8,6 +8,7 @@ function setup() {
   const db = new DatabaseSync(':memory:');
   db.exec(readFileSync(new URL('./database/boards.sql', import.meta.url), 'utf8'));
   db.exec(readFileSync(new URL('./database/tournament-codes.sql', import.meta.url), 'utf8'));
+  db.exec(readFileSync(new URL('./database/tournament-lifecycle.sql', import.meta.url), 'utf8'));
   const binding = {
     prepare(sql) {
       const stmt = db.prepare(sql);
@@ -15,6 +16,7 @@ function setup() {
         bind(...args) {
           return {
             first: async () => stmt.get(...args) ?? null,
+            all: async () => ({ results: stmt.all(...args) }),
             run: async () => ({ meta: { changes: Number(stmt.run(...args).changes) } })
           };
         }
@@ -116,4 +118,39 @@ test('an older tournament link still works and the scorekeeper can recover a pla
   const { code } = await resumed.json();
   assert.match(code, /^[0-9A-HJKMNP-TV-Z]{12}$/);
   assert.equal((await call('GET', '/' + code)).status, 200);
+});
+
+test('separate match edits can both succeed, retries stay idempotent, and conflicting scores are rejected', async () => {
+  const { call } = setup();
+  const event = structuredClone(snapshot);
+  Object.assign(event.data, { players: 3, names: ['А', 'Б', 'В'], scores: [['', ''], ['', ''], ['', '']] });
+  await call('POST', '', { id, snapshot: event }, secret);
+  const operation = { id: '11111111-1111-4111-8111-111111111111', match: 0, layout: 1, version: 0, score: ['11', '5'] };
+  assert.equal((await call('PATCH', '/' + id, operation, secret)).status, 200);
+  assert.equal((await call('PATCH', '/' + id, operation, secret)).status, 200);
+  const independent = { ...operation, id: '22222222-2222-4222-8222-222222222222', match: 1, score: ['11', '9'] };
+  assert.equal((await call('PATCH', '/' + id, independent, secret)).status, 200);
+  assert.equal((await call('PATCH', '/' + id, { ...independent, match: 0 }, secret)).status, 409);
+  const board = await (await call('GET', '/' + id)).json();
+  assert.deepEqual(board.snapshot.data.scores.slice(0, 2), [['11', '5'], ['11', '9']]);
+  assert.equal((await call('GET', '/' + id + '?since=' + board.revision)).status, 204);
+});
+
+test('finalize locks edits, reopen preserves the archived snapshot, and organizer key rotation only affects edits', async () => {
+  const { call } = setup();
+  const created = await (await call('POST', '', { id, snapshot }, secret)).json();
+  assert.equal((await call('POST', '/' + id + '/finalize', undefined, secret, '"1"')).status, 409);
+  const completed = structuredClone(snapshot);
+  completed.data.title = 'Club final';
+  completed.data.scores[0] = ['11', '7'];
+  assert.equal((await call('PUT', '/' + id, completed, secret, '"1"')).status, 200);
+  assert.equal((await call('POST', '/' + id + '/finalize', undefined, secret, '"2"')).status, 200);
+  assert.equal((await call('PUT', '/' + id, snapshot, secret, '"3"')).status, 423);
+  assert.equal((await call('POST', '/' + id + '/reopen', undefined, secret, '"3"')).status, 200);
+  const archive = await (await call('GET', '/' + created.code + '/archives?revision=3')).json();
+  assert.equal(archive.snapshot.data.title, 'Club final');
+  assert.deepEqual(archive.snapshot.data.scores[0], ['11', '7']);
+  assert.equal((await call('POST', '/' + id + '/key', { key: wrongSecret }, secret)).status, 204);
+  assert.equal((await call('GET', '/' + created.code, undefined, secret)).status, 403);
+  assert.equal((await call('GET', '/' + created.code, undefined, wrongSecret)).status, 200);
 });

@@ -3,15 +3,16 @@
 
   // Match formats. `play` is the time limit per match in minutes.
   var FORMATS = {
-    11: { target: 11, play: 8, serve: 'двух', deuce: '10:10', ex: '11:9 или 13:11', word: 'очков' },
-    21: { target: 21, play: 12, serve: 'пяти', deuce: '20:20', ex: '21:18 или 23:21', word: 'очка' }
+    11: { target: 11, play: 8, serve: I18n.t('двух'), deuce: '10:10', ex: I18n.t('11:9 или 13:11'), word: I18n.t('очков') },
+    21: { target: 21, play: 12, serve: I18n.t('пяти'), deuce: '20:20', ex: I18n.t('21:18 или 23:21'), word: I18n.t('очка') }
   };
   var KEY = 'tt-tournament-v3', TKEY = 'tt-timer-v2';
   var MIN_PLAYERS = 2, MAX_PLAYERS = 24, MAX_TABLES = 12, MAX_MINUTES = 10080;
   var access = new URLSearchParams(location.search);
   var boardId = access.get('board'), joinCode = access.get('code');
   var readOnly = boardId !== null || joinCode !== null, sharing, mode = readOnly ? 'viewer' : 'choose';
-  var viewCode, reportState, reportReturn, reportScroll;
+  var viewCode, reportReturn, reportScroll, finalizedAt = null;
+  var queueEntries = [], queueLayout, roundTimes = [], offsets = [], allRounds = false, archiveSource;
 
   function $(id) { return document.getElementById(id); }
 
@@ -41,6 +42,7 @@
     var min = Tournament.minimumMinutes(Tournament.schedule(players, tables).length);
     var d = {
       players: players, tables: tables, target: target,
+      title: typeof raw.title === 'string' ? raw.title.slice(0, 80) : '',
       minutes: inRange(raw.minutes, min, MAX_MINUTES) ? raw.minutes : null,
       names: Array.from({ length: players }, function (_, i) { return 'П' + (i + 1); }),
       scores: blankScores(players * (players - 1) / 2)
@@ -75,7 +77,13 @@
     info();
   }
   function fmt() { return FORMATS[data.target] || FORMATS[11]; }
-  function name(i) { return String(data.names[i] || '').trim() || 'П' + (i + 1); }
+  function shownName(value, i) {
+    var fallback = 'П' + (i + 1);
+    var label = String(value || '').trim() || fallback;
+    return I18n.lang === 'en' && label === fallback ? 'P' + (i + 1) : label;
+  }
+
+  function name(i) { return shownName(data.names[i], i); }
 
   // ---------- Score validation ----------
   function num(x) { x = String(x).trim(); return /^\d{1,2}$/.test(x) ? Number(x) : null; }
@@ -84,17 +92,17 @@
     var t = fmt().target, a, b, hi, lo, res;
     if (String(s[0]).trim() === '' || String(s[1]).trim() === '') return { ok: false, empty: true };
     a = num(s[0]); b = num(s[1]);
-    if (a === null || b === null) return { ok: false, msg: 'Введите целое число от 0 до 99.' };
-    if (a === b) return { ok: false, msg: 'Ничьей быть не может — нужен победитель.' };
+    if (a === null || b === null) return { ok: false, msg: I18n.t('Введите целое число от 0 до 99.') };
+    if (a === b) return { ok: false, msg: I18n.t('Ничьей быть не может — нужен победитель.') };
     hi = Math.max(a, b); lo = Math.min(a, b);
     res = { ok: true, a: a, b: b, w: a > b ? 0 : 1, note: '', warn: false };
     if (s[2] === true) {
-      res.note = 'по лимиту времени';
+      res.note = I18n.t('по лимиту времени');
     } else if (hi > t && hi - lo > 2) {
       res.warn = true;
-      res.note = 'проверьте счёт: после ' + (t - 1) + ':' + (t - 1) + ' игра идёт до перевеса в 2 очка.';
+      res.note = I18n.t('проверьте счёт: после ') + (t - 1) + ':' + (t - 1) + I18n.t(' игра идёт до перевеса в 2 очка.');
     } else if (!((hi === t && lo <= t - 2) || (hi > t && hi - lo === 2))) {
-      res.note = 'нестандартный счёт — окончено по лимиту времени?';
+      res.note = I18n.t('нестандартный счёт — окончено по лимиту времени?');
     }
     return res;
   }
@@ -105,72 +113,100 @@
 
   function make(tag, txt) { var e = document.createElement(tag); e.textContent = txt; return e; }
 
-  function update() {
-    var N = data.players, M = PAIRS.length;
-    var stat = [], results = [], done = 0, i, j, k, p, r, z, st, label, rank = 1, tie, d, values, tr,
-      body = $('ranking'), leaders = [], reportRanking = [];
-    for (i = 0; i < N; i++) stat.push({ i: i, g: 0, w: 0, l: 0, f: 0, a: 0, h: 0 });
-    ROUNDS.forEach(function (round, i) {
-      var rest = $('rest' + i);
-      if (rest.hidden) return;
-      var playing = new Set(round.flat());
-      rest.textContent = 'Отдых: ' + data.names.map(function (_, player) {
-        return playing.has(player) ? null : name(player);
-      }).filter(Boolean).join(', ');
+  function rankMatches(players, pairs, results, playerName) {
+    var stat = Array.from({ length: players }, function (_, i) { return { i: i, g: 0, w: 0, l: 0, f: 0, a: 0, h: 0 }; });
+    var played = 0;
+    results.forEach(function (result, i) {
+      if (!result.ok) return;
+      played++;
+      pairs[i].forEach(function (player, side) {
+        var row = stat[player], own = side === 0 ? result.a : result.b, other = side === 0 ? result.b : result.a;
+        row.g++; row.f += own; row.a += other;
+        if (own > other) row.w++; else row.l++;
+      });
     });
+    results.forEach(function (result, i) {
+      var pair = pairs[i];
+      if (result.ok && stat[pair[0]].w === stat[pair[1]].w) stat[pair[result.w]].h++;
+    });
+    stat.sort(function (a, b) { return cmp(a, b) || a.i - b.i; });
+    var rank = 1, leaders = [];
+    var rows = stat.map(function (row, i) {
+      if (i && cmp(stat[i - 1], row) !== 0) rank = i + 1;
+      var tie = (i > 0 && cmp(stat[i - 1], row) === 0) || (i < stat.length - 1 && cmp(row, stat[i + 1]) === 0);
+      var delta = row.f - row.a;
+      if (cmp(stat[0], row) === 0) leaders.push(playerName(row.i));
+      return { rank: rank, cells: [played ? rank + (tie ? '=' : '') : '—', playerName(row.i),
+        row.g, row.w, row.l, row.f, row.a, (delta > 0 ? '+' : '') + delta, row.w] };
+    });
+    return { played: played, leaders: leaders, rows: rows };
+  }
 
-    for (j = 0; j < M; j++) {
-      p = PAIRS[j]; r = assess(data.scores[j]); results.push(r);
-      for (k = 0; k < 2; k++) {
-        label = $('p' + j + '-' + k);
-        label.textContent = name(p[k]);
-        label.className = 'player' + (r.ok && r.w === k ? ' win' : '');
-        $('s' + j + '-' + k).textContent = data.scores[j][k] || '—';
-      }
-      st = $('state' + j);
-      if (r.ok) {
-        st.className = 'state' + (r.warn ? ' invalid' : r.note ? ' note' : '');
-        st.textContent = 'Записано · ' + name(p[r.w]) + ' · ' + r.a + ':' + r.b + (r.note ? ' · ' + r.note : '');
-        done++;
-        for (k = 0; k < 2; k++) {
-          z = stat[p[k]];
-          var f = k === 0 ? r.a : r.b, o = k === 0 ? r.b : r.a;
-          z.g++; z.f += f; z.a += o;
-          if (f > o) z.w++; else z.l++;
-        }
-      } else {
-        st.className = 'state' + (r.empty ? '' : ' invalid');
-        st.textContent = r.empty ? 'Ожидает результата' : r.msg;
+  function paintRound(round, r) {
+    var rest = round.querySelector('.rest');
+    if (!rest.hidden) {
+      var playing = new Set(ROUNDS[r].flat());
+      rest.textContent = I18n.t('Отдых: ') + data.names.map(function (_, i) {
+        return playing.has(i) ? null : name(i);
+      }).filter(Boolean).join(', ');
+    }
+    round.querySelectorAll('[data-match]').forEach(function (match) {
+      var j = Number(match.dataset.match), p = PAIRS[j], result = assess(data.scores[j]);
+      p.forEach(function (player, side) {
+        var label = $('p' + j + '-' + side);
+        label.textContent = name(player);
+        label.className = 'player' + (result.ok && result.w === side ? ' win' : '');
+        $('s' + j + '-' + side).textContent = data.scores[j][side] || '—';
+      });
+      var status = $('state' + j);
+      status.className = 'state' + (result.warn || (!result.ok && !result.empty) ? ' invalid' : result.note ? ' note' : '');
+      status.textContent = result.ok
+        ? I18n.t('Записано · ') + name(p[result.w]) + ' · ' + result.a + ':' + result.b + (result.note ? ' · ' + result.note : '')
+        : result.empty ? I18n.t('Ожидает результата') : result.msg;
+      var operation = queuedFor(j);
+      if (operation) {
+        status.className += operation.review ? ' invalid' : ' note';
+        status.textContent += ' · ' + (operation.review ? I18n.t('Нужна проверка') : I18n.t('В очереди')) +
+          ' (' + (operation.score[0] ? operation.score.slice(0, 2).join(':') : I18n.t('удаление')) + ')';
       }
       var edit = $('edit' + j);
-      if (edit) edit.textContent = r.ok ? 'Изменить результат' : 'Внести результат';
-    }
+      if (edit) {
+        edit.hidden = Boolean(finalizedAt);
+        edit.disabled = Boolean(operation && !operation.review);
+        edit.textContent = operation?.review ? I18n.t('Проверить результат') : result.ok ? I18n.t('Изменить результат') : I18n.t('Внести результат');
+      }
+    });
+  }
 
-    // Head-to-head: a win counts only if both players finished level on wins.
-    for (j = 0; j < M; j++) {
-      r = results[j]; p = PAIRS[j];
-      if (r.ok && stat[p[0]].w === stat[p[1]].w) stat[p[r.w]].h++;
-    }
+  function paintVisibleRounds() {
+    $('rounds').querySelectorAll('.round').forEach(function (round) { paintRound(round, Number(round.dataset.round)); });
+  }
 
-    stat.sort(function (a, b) { return cmp(a, b) || a.i - b.i; });
-    while (body.firstChild) body.removeChild(body.firstChild);
-    for (i = 0; i < N; i++) {
-      z = stat[i];
-      if (i && cmp(stat[i - 1], z) !== 0) rank = i + 1;
-      tie = (i > 0 && cmp(stat[i - 1], z) === 0) || (i < N - 1 && cmp(z, stat[i + 1]) === 0);
-      tr = document.createElement('tr');
-      if (done === M && rank === 1) tr.className = 'winner';
-      d = z.f - z.a;
-      values = [done === 0 ? '—' : rank + (tie ? '=' : ''), name(z.i), z.g, z.w, z.l, z.f, z.a, (d > 0 ? '+' : '') + d, z.w];
-      reportRanking.push(values.slice(0, 8));
-      for (k = 0; k < values.length; k++) tr.appendChild(make('td', values[k]));
-      body.appendChild(tr);
-      if (cmp(stat[0], z) === 0) leaders.push(name(z.i));
-    }
-    $('progress').textContent = 'Сыграно ' + done + ' из ' + M + ' матчей. ' + (done === M ? 'Турнир завершён.' : 'Рейтинг предварительный.');
-    $('result').textContent = done === M ? (leaders.length === 1 ? '🏆 Победитель: ' + leaders[0] : 'Первое место делят: ' + leaders.join(', ')) : '';
-    reportState = { ranking: reportRanking, results: results };
-    $('report-open').textContent = done === M ? 'Итоговый протокол / PDF' : 'Протокол матчей / PDF';
+  function resultText(leaders) {
+    return leaders.length === 1 ? I18n.t('Победитель: ') + leaders[0] : I18n.t('Первое место делят: ') + leaders.join(', ');
+  }
+
+  function update() {
+    $('tournament-heading').textContent = data.title || I18n.t('Настольный теннис');
+    var results = data.scores.map(function (score) { return assess(score); });
+    var ranking = rankMatches(data.players, PAIRS, results, name);
+    var complete = ranking.played === PAIRS.length;
+    paintVisibleRounds();
+    var rows = document.createDocumentFragment();
+    ranking.rows.forEach(function (entry) {
+      var row = document.createElement('tr');
+      if (complete && entry.rank === 1) row.className = 'winner';
+      entry.cells.forEach(function (value) { row.appendChild(make('td', value)); });
+      rows.appendChild(row);
+    });
+    $('ranking').replaceChildren(rows);
+    $('progress').textContent = I18n.t('Сыграно ') + ranking.played + I18n.t(' из ') + PAIRS.length + I18n.t(' матчей. ') +
+      (finalizedAt ? I18n.t('Турнир завершён.') : complete ? I18n.t('Все результаты внесены.') : I18n.t('Рейтинг предварительный.'));
+    $('result').textContent = complete ? '🏆 ' + resultText(ranking.leaders) : '';
+    $('report-open').textContent = finalizedAt || (mode === 'local' && complete) ? I18n.t('Итоговый протокол / PDF') : I18n.t('Протокол матчей / PDF');
+    $('finalize-tournament').hidden = mode !== 'owner' || Boolean(finalizedAt);
+    $('finalize-tournament').disabled = !complete || queueEntries.length > 0;
+    $('reopen-tournament').hidden = mode !== 'owner' || !finalizedAt;
     updatePlayerOptions();
     renderPlayer();
   }
@@ -192,24 +228,25 @@
     $('mtotal').textContent = total;
     $('mplayers').textContent = data.players;
     $('mtables').textContent = data.tables;
-    $('matchsummary').textContent = 'Матчей: ' + PAIRS.length + ' · Раундов: ' + ROUNDS.length + ' · Матчей на игрока: ' + (data.players - 1);
+    $('matchsummary').textContent = I18n.t('Матчей: ') + PAIRS.length + I18n.t(' · Раундов: ') + ROUNDS.length + I18n.t(' · Матчей на игрока: ') + (data.players - 1);
     for (r = 0; r < ROUNDS.length; r++) {
       var start = end;
       end += PLAN.games[r] + PLAN.change;
-      $('rtime' + r).textContent = 'Раунд ' + (r + 1) + ' · ' + durationLabel(start) + '–' + durationLabel(end) + ' мин';
+      roundTimes[r] = I18n.t('Раунд ') + (r + 1) + ' · ' + durationLabel(start) + '–' + durationLabel(end) + I18n.t(' мин');
+      if ($('rtime' + r)) $('rtime' + r).textContent = roundTimes[r];
     }
-    setLines($('tlmain'), durationLabel(PLAN.warm) + '–' + durationLabel(end) + ' мин', 'Раундов: ' + ROUNDS.length);
-    setLines($('tlend'), durationLabel(end) + '–' + total + ' мин', 'Итоги');
-    $('schedinfo').textContent = 'Время от начала турнира. Игра: ' + play + ' мин на раунд. Смена игроков и запись счёта: 2 мин.';
-    $('scoreinfo').textContent = 'Матч до ' + f.target + ' ' + f.word + '.';
-    $('rule2').textContent = 'Матч состоит из одной партии до ' + f.target + ' ' + f.word +
-      '. Для обычной победы нужен перевес минимум в два очка (например, ' + f.ex + ').';
-    $('rule3').textContent = 'Первую подачу определите жребием. Подача переходит после каждых ' + f.serve +
-      ' розыгрышей, при ' + f.deuce + ' — после каждого. При подаче мяч подбрасывают с открытой ладони, и он должен отскочить сначала на своей, затем на чужой половине стола.';
-    $('rule4').textContent = 'Лимит — ' + play + ' мин на матч. По сигналу таймера завершите текущий розыгрыш. ' +
-      'Если партия не закончена, выигрывает тот, кто ведёт в счёте. При равенстве разыгрывается одно решающее очко по очереди подачи. ' +
-      'Затем внесите итоговый счёт. Это специальное правило мини-турнира, а не стандартное правило настольного тенниса.';
-    $('fmthint').textContent = 'Игра: ' + play + ' мин на матч. Турнир: ' + total + ' мин.';
+    setLines($('tlmain'), durationLabel(PLAN.warm) + '–' + durationLabel(end) + I18n.t(' мин'), I18n.t('Раундов: ') + ROUNDS.length);
+    setLines($('tlend'), durationLabel(end) + '–' + total + I18n.t(' мин'), I18n.t('Итоги'));
+    $('schedinfo').textContent = I18n.t('Время от начала турнира. Игра: ') + play + I18n.t(' мин на раунд. Смена игроков и запись счёта: 2 мин.');
+    $('scoreinfo').textContent = I18n.t('Матч до ') + f.target + ' ' + f.word + '.';
+    $('rule2').textContent = I18n.t('Матч состоит из одной партии до ') + f.target + ' ' + f.word +
+      I18n.t('. Для обычной победы нужен перевес минимум в два очка (например, ') + f.ex + ').';
+    $('rule3').textContent = I18n.t('Первую подачу определите жребием. Подача переходит после каждых ') + f.serve +
+      I18n.t(' розыгрышей, при ') + f.deuce + I18n.t(' — после каждого. При подаче мяч подбрасывают с открытой ладони, и он должен отскочить сначала на своей, затем на чужой половине стола.');
+    $('rule4').textContent = I18n.t('Лимит — ') + play + I18n.t(' мин на матч. По сигналу таймера завершите текущий розыгрыш. ') +
+      I18n.t('Если партия не закончена, выигрывает тот, кто ведёт в счёте. При равенстве разыгрывается одно решающее очко по очереди подачи. ') +
+      I18n.t('Затем внесите итоговый счёт. Это специальное правило мини-турнира, а не стандартное правило настольного тенниса.');
+    $('fmthint').textContent = I18n.t('Игра: ') + play + I18n.t(' мин на матч. Турнир: ') + total + I18n.t(' мин.');
   }
 
   // ---------- Timer ----------
@@ -217,12 +254,12 @@
     return Math.floor(seconds / 60) + (seconds % 60 ? ':' + two(seconds % 60) : '');
   }
   function phases() {
-    var p = [{ r: -1, kind: 'warm', label: 'Разминка', seconds: PLAN.warm }], r;
+    var p = [{ r: -1, kind: 'warm', label: I18n.t('Разминка'), seconds: PLAN.warm }], r;
     for (r = 0; r < ROUNDS.length; r++) {
-      p.push({ r: r, kind: 'play', label: 'Раунд ' + (r + 1) + ' · игра', seconds: PLAN.games[r] });
-      p.push({ r: r, kind: 'change', label: 'Раунд ' + (r + 1) + ' · ' + (r < ROUNDS.length - 1 ? 'смена и запись' : 'запись результатов'), seconds: PLAN.change });
+      p.push({ r: r, kind: 'play', label: I18n.t('Раунд ') + (r + 1) + I18n.t(' · игра'), seconds: PLAN.games[r] });
+      p.push({ r: r, kind: 'change', label: I18n.t('Раунд ') + (r + 1) + ' · ' + (r < ROUNDS.length - 1 ? I18n.t('смена и запись') : I18n.t('запись результатов')), seconds: PLAN.change });
     }
-    p.push({ r: -1, kind: 'final', label: 'Итоги', seconds: PLAN.final });
+    p.push({ r: -1, kind: 'final', label: I18n.t('Итоги'), seconds: PLAN.final });
     return p;
   }
   var P = phases();
@@ -254,7 +291,7 @@
   var T = readOnly ? freshTimer() : loadTimer();
   var localDraft = readOnly ? null : structuredClone({ data: data, timer: T });
   function saveTimer() {
-    if (mode === 'owner') { sharing.changed(); return; }
+    if (mode === 'owner') { if (sharing.allowChange()) sharing.changed(); return; }
     if (mode === 'local') {
       store(TKEY, T);
       localDraft.timer = structuredClone(T);
@@ -320,21 +357,27 @@
 
   function two(n) { return (n < 10 ? '0' : '') + n; }
   function clock(ms) { var s = Math.ceil(ms / 1000); return two(Math.floor(s / 60)) + ':' + two(s % 60); }
+  function setText(node, value) {
+    if (node.textContent !== value) node.textContent = value;
+  }
 
-  var lastRound = -1, lastPhase;
+  var lastRound = -1, lastPhase, lastBarWidth;
   function renderTimer() {
     var ph = P[T.i], rem = remaining(), bar = $('timer'), btn = $('tstart'), cur;
     var next = P[T.i + 1];
-    $('tphase').textContent = ph.label;
-    $('tnext').textContent = next ? 'Далее: ' + next.label + ' (' + durationLabel(next.seconds) + ' мин)' : 'Последний этап';
-    $('tclock').textContent = clock(rem);
-    $('tprog').style.width = (100 * (1 - rem / dur(T.i))).toFixed(2) + '%';
-    bar.className = 'timerbar' + (ph.kind === 'change' ? ' change' : '') +
+    setText($('tphase'), ph.label);
+    setText($('tnext'), next ? I18n.t('Далее: ') + next.label + ' (' + durationLabel(next.seconds) + I18n.t(' мин)') : I18n.t('Последний этап'));
+    setText($('tclock'), clock(rem));
+    var width = (100 * (1 - rem / dur(T.i))).toFixed(2) + '%';
+    if (lastBarWidth !== width) { $('tprog').style.width = width; lastBarWidth = width; }
+    var style = 'timerbar' + (ph.kind === 'change' ? ' change' : '') +
       (T.running && ph.kind === 'play' && rem <= 60000 ? ' last' : '') + (finished() ? ' done' : '');
-    btn.textContent = T.running ? 'Пауза' : finished() ? 'Завершено' : started() ? 'Продолжить' : 'Старт';
-    btn.disabled = finished();
+    if (bar.className !== style) bar.className = style;
+    setText(btn, T.running ? I18n.t('Пауза') : finished() ? I18n.t('Завершено') : started() ? I18n.t('Продолжить') : I18n.t('Старт'));
+    if (btn.disabled !== finished()) btn.disabled = finished();
     if (!document.body.classList.contains('report-open')) {
-      document.title = (T.running ? clock(rem) + ' · ' : '') + 'Мини-турнир по настольному теннису';
+      var title = (T.running ? clock(rem) + ' · ' : '') + I18n.t('Мини-турнир по настольному теннису');
+      if (document.title !== title) document.title = title;
     }
     cur = started() ? ph.r : -1;
     if (cur !== lastRound) {
@@ -381,8 +424,17 @@
     saveTimer(); renderTimer();
   }
 
+  function allowSettings() {
+    var permitted = mode === 'local' || (mode === 'owner' && sharing.allowChange());
+    if (!permitted) {
+      $('session-status').textContent = I18n.t('Настройки и таймер доступны после синхронизации и до завершения турнира.');
+    }
+    return permitted;
+  }
+
   function bindTimer() {
     $('tstart').addEventListener('click', function () {
+      if (!allowSettings()) return;
       audio();
       var first = !started();
       if (T.running) { T.left = remaining(); T.running = false; }
@@ -393,12 +445,14 @@
       saveTimer(); syncLock(); renderTimer();
     });
     $('tskip').addEventListener('click', function () {
+      if (!allowSettings()) return;
       audio();
       $('timer-controls').open = false;
       if (T.i < P.length - 1) goTo(T.i + 1);
       else { T.running = false; T.left = 0; saveTimer(); syncLock(); renderTimer(); }
     });
     $('tprev').addEventListener('click', function () {
+      if (!allowSettings()) return;
       audio();
       $('timer-controls').open = false;
       // Like a media player: first press restarts the stage, second goes back one.
@@ -406,7 +460,8 @@
       else goTo(T.i - 1);
     });
     $('treset').addEventListener('click', function () {
-      if (!started() || window.confirm('Сбросить таймер к началу турнира?')) {
+      if (!allowSettings()) return;
+      if (!started() || window.confirm(I18n.t('Сбросить таймер к началу турнира?'))) {
         $('timer-controls').open = false;
         T = freshTimer(); saveTimer(); syncLock(); renderTimer();
       }
@@ -419,24 +474,51 @@
     });
     // Browsers only allow sound after a user gesture; unlock on the first tap anywhere.
     document.addEventListener('pointerdown', function unlock() { audio(); document.removeEventListener('pointerdown', unlock); });
-    setInterval(function () { if (mode !== 'choose') tick(); }, 250);
+    setInterval(function () { if (mode !== 'choose' && !document.hidden) tick(); }, 1000);
   }
 
   // ---------- Status line & offline ----------
   var offlineReady = false;
   function info() {
-    var t = mode === 'owner' ? 'Официальные данные турнира хранятся на сервере.'
-      : storageOK ? 'Настройки, имена, результаты и таймер сохраняются в этом браузере.'
-      : 'Автоподсчёт работает, но локальное сохранение недоступно. Не закрывайте страницу до окончания турнира.';
-    if (offlineReady) t += ' Страница доступна без интернета.';
-    if (navigator.onLine === false) t += ' Сейчас нет сети — работа офлайн.';
+    var t = mode === 'owner' ? I18n.t('Официальные данные турнира хранятся на сервере.')
+      : storageOK ? I18n.t('Настройки, имена, результаты и таймер сохраняются в этом браузере.')
+      : I18n.t('Автоподсчёт работает, но локальное сохранение недоступно. Не закрывайте страницу до окончания турнира.');
+    if (offlineReady) t += I18n.t(' Страница доступна без интернета.');
+    if (navigator.onLine === false) t += I18n.t(' Сейчас нет сети — работа офлайн.');
     $('saveinfo').textContent = t;
   }
 
   function registerSW() {
     if (!('serviceWorker' in navigator) || !/^https?:$/.test(location.protocol)) return;
-    navigator.serviceWorker.register('sw.js').then(function () { return navigator.serviceWorker.ready; })
-      .then(function () { offlineReady = true; info(); }).catch(function () {});
+    var accepting = false;
+    navigator.serviceWorker.register('sw.js').then(function (registration) {
+      function notice() {
+        if (registration.waiting && navigator.serviceWorker.controller) $('app-update').hidden = false;
+      }
+      notice();
+      registration.addEventListener('updatefound', function () {
+        var worker = registration.installing;
+        if (worker) worker.addEventListener('statechange', notice);
+      });
+      $('apply-update').addEventListener('click', function () {
+        if ($('score-dialog').open || (sharing && !sharing.safeToReload())) {
+          $('update-status').textContent = I18n.t('Дождитесь синхронизации перед обновлением.');
+          return;
+        }
+        if (!registration.waiting) return;
+        accepting = true;
+        $('apply-update').disabled = true;
+        $('update-status').textContent = I18n.t('Обновляем приложение…');
+        registration.waiting.postMessage({ type: 'ACTIVATE_UPDATE' });
+      });
+      navigator.serviceWorker.addEventListener('controllerchange', function () {
+        if (accepting) location.reload();
+      });
+      document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) registration.update().catch(function () {});
+      });
+      return navigator.serviceWorker.ready;
+    }).then(function () { offlineReady = true; info(); }).catch(function () {});
   }
 
   // ---------- Wiring ----------
@@ -466,8 +548,11 @@
   }
 
   function fixtureLink(fixture) {
-    var link = make('a', 'Раунд ' + (fixture.round + 1) + ' · Стол ' + fixture.table + ' · ' + name(fixture.opponent));
+    var link = make('a', I18n.t('Раунд ') + (fixture.round + 1) + I18n.t(' · Стол ') + fixture.table + ' · ' + name(fixture.opponent));
     link.href = '#match' + fixture.match;
+    link.addEventListener('click', function () {
+      if (!$('match' + fixture.match)) { allRounds = true; renderRounds(lastRound); paintVisibleRounds(); }
+    });
     return link;
   }
 
@@ -480,10 +565,10 @@
     var matches = Tournament.matchesFor(ROUNDS, selectedPlayer);
     var ph = P[T.i], current = matches.find(function (match) { return match.round === ph.r; });
     var next = matches.find(function (match) { return match.round > ph.r && !assess(data.scores[match.match]).ok; });
-    if (ph.kind === 'final' || finished()) card.append(make('strong', 'Игры завершены. Итоги в таблице.'));
-    else if (current) card.append(make('strong', ph.kind === 'change' ? 'Завершённый раунд' : 'Сейчас'), fixtureLink(current));
-    else if (ph.kind !== 'warm') card.append(make('strong', 'Сейчас вы отдыхаете.'));
-    if (next && ph.kind !== 'final' && !finished()) card.append(make('strong', 'Следующий матч'), fixtureLink(next));
+    if (ph.kind === 'final' || finished()) card.append(make('strong', I18n.t('Игры завершены. Итоги в таблице.')));
+    else if (current) card.append(make('strong', ph.kind === 'change' ? I18n.t('Завершённый раунд') : I18n.t('Сейчас')), fixtureLink(current));
+    else if (ph.kind !== 'warm') card.append(make('strong', I18n.t('Сейчас вы отдыхаете.')));
+    if (next && ph.kind !== 'final' && !finished()) card.append(make('strong', I18n.t('Следующий матч')), fixtureLink(next));
 
     matches.forEach(function (match) {
       var item = document.createElement('li');
@@ -498,26 +583,72 @@
     $('names').textContent = '';
     data.names.forEach(function (_, i) {
       var label = nameTemplate.cloneNode(true), input = label.querySelector('input');
-      label.firstChild.nodeValue = 'Игрок ' + (i + 1);
+      label.firstChild.nodeValue = I18n.t('Игрок ') + (i + 1);
       label.htmlFor = input.id = 'name' + i;
       $('names').appendChild(label);
       if (!readOnly) bindName(i);
     });
-    var rounds = document.createDocumentFragment(), matchIndex = 0;
-    ROUNDS.forEach(function (pairs, r) {
-      var round = roundTemplate.cloneNode(false), head = headTemplate.cloneNode(true);
+    var first = 0;
+    offsets = ROUNDS.map(function (pairs) {
+      var start = first;
+      first += pairs.length;
+      return start;
+    });
+    allRounds = false;
+    renderRounds(-1);
+    lastRound = -1;
+    lastPhase = undefined;
+  }
+
+  function queuedFor(match) {
+    return queueEntries.find(function (item) { return item.layout === queueLayout && item.match === match; });
+  }
+
+  function showQueue(items, layout) {
+    queueEntries = items;
+    queueLayout = layout;
+    var review = items.filter(function (item) { return item.review; });
+    var list = $('queue-review-list');
+    list.replaceChildren();
+    review.forEach(function (item) {
+      var li = make('li', item.label + ' · ' + (item.score[0] ? item.score.slice(0, 2).join(':') : I18n.t('удаление')) + ' ');
+      var button = make('button', I18n.t('Отбросить правку'));
+      button.type = 'button';
+      button.addEventListener('click', function () { sharing.discard(item.id); });
+      li.appendChild(button);
+      list.appendChild(li);
+    });
+    $('queue-review').hidden = !review.length;
+    $('queue-pending').textContent = items.length ? I18n.t('В очереди: ') + items.length : '';
+    paintVisibleRounds();
+    $('finalize-tournament').disabled = items.length > 0 || data.scores.some(function (score) { return !assess(score).ok; });
+  }
+
+  function renderRounds(current) {
+    var indices = ROUNDS.map(function (_, i) { return i; });
+    if (current >= 0) indices = [current].concat(indices.filter(function (i) { return i !== current; }));
+    if (!allRounds && indices.length > 5) {
+      var first = Math.max(0, current);
+      indices = indices.filter(function (i) { return i >= first && i < first + 3; });
+    }
+    var rounds = document.createDocumentFragment();
+    indices.forEach(function (r) {
+      var pairs = ROUNDS[r], round = roundTemplate.cloneNode(false), head = headTemplate.cloneNode(true);
       var matches = document.createElement('div');
       round.id = 'round' + r;
+      round.dataset.round = r;
+      round.classList.toggle('current', r === current);
       head.querySelector('b').id = 'rtime' + r;
+      head.querySelector('b').textContent = roundTimes[r] || I18n.t('Раунд ') + (r + 1);
       var rest = head.querySelector('.rest');
       rest.id = 'rest' + r;
       rest.hidden = pairs.length * 2 === data.players;
       matches.className = 'matches';
       pairs.forEach(function (_, table) {
-        var match = matchTemplate.cloneNode(true);
-        var j = matchIndex++;
+        var match = matchTemplate.cloneNode(true), j = offsets[r] + table;
         match.id = 'match' + j;
-        match.querySelector('.tabletag').textContent = 'Стол ' + (table + 1);
+        match.dataset.match = j;
+        match.querySelector('.tabletag').textContent = I18n.t('Стол ') + (table + 1);
         match.querySelector('.state').id = 'state' + j;
         match.querySelectorAll('.matchrow').forEach(function (row, k) {
           var label = make('span', ''), score = make('span', '');
@@ -527,7 +658,7 @@
           row.replaceChildren(label, score);
         });
         if (!readOnly) {
-          var edit = make('button', 'Внести результат');
+          var edit = make('button', I18n.t('Внести результат'));
           edit.id = 'edit' + j;
           edit.type = 'button';
           edit.className = 'match-edit';
@@ -541,14 +672,15 @@
       rounds.appendChild(round);
     });
     $('rounds').replaceChildren(rounds);
-    lastRound = -1;
-    lastPhase = undefined;
+    $('toggle-rounds').hidden = ROUNDS.length <= 5;
+    $('toggle-rounds').textContent = allRounds ? I18n.t('Текущие раунды') : I18n.t('Все раунды');
+    $('toggle-rounds').setAttribute('aria-expanded', String(allRounds));
   }
 
   function previewSetup() {
     var players = $('player-count').valueAsNumber, tables = $('table-count').valueAsNumber;
     if (!inRange(players, MIN_PLAYERS, MAX_PLAYERS) || !inRange(tables, 1, MAX_TABLES)) {
-      $('setup-hint').textContent = 'Введите от 2 до 24 игроков и от 1 до 12 столов.';
+      $('setup-hint').textContent = I18n.t('Введите от 2 до 24 игроков и от 1 до 12 столов.');
       return null;
     }
     var rounds = Tournament.schedule(players, tables);
@@ -556,8 +688,8 @@
     var minutes = duration.value === '' && !duration.validity.badInput ? null : duration.valueAsNumber;
     duration.min = min;
     var automatic = Tournament.timing(rounds.length, fmt().play, null).total / 60;
-    duration.placeholder = automatic + ' (авто)';
-    $('setup-hint').textContent = 'Раундов: ' + rounds.length + ' · Минимум: ' + min + ' мин · Авто: ' + automatic + ' мин';
+    duration.placeholder = automatic + I18n.t(' (авто)');
+    $('setup-hint').textContent = I18n.t('Раундов: ') + rounds.length + I18n.t(' · Минимум: ') + min + I18n.t(' мин · Авто: ') + automatic + I18n.t(' мин');
     return { rounds: rounds, players: players, tables: tables, minutes: minutes };
   }
 
@@ -567,6 +699,7 @@
     form.addEventListener('input', function () { $('setup-status').textContent = ''; previewSetup(); });
     form.addEventListener('submit', function (event) {
       event.preventDefault();
+      if (!allowSettings()) return;
       var setup = previewSetup();
       if (!setup || !form.reportValidity()) return;
       var plan = Tournament.timing(setup.rounds.length, fmt().play, setup.minutes);
@@ -576,9 +709,9 @@
         return pair[1] >= setup.players && data.scores[j].slice(0, 2).some(Boolean);
       });
       var warnings = [];
-      if (removedResults) warnings.push('Счёт матчей удалённых игроков будет удалён.');
-      if (resetTimer && started()) warnings.push('Таймер вернётся к началу турнира.');
-      if (warnings.length && !window.confirm(warnings.join(' ') + ' Применить настройки?')) return;
+      if (removedResults) warnings.push(I18n.t('Счёт матчей удалённых игроков будет удалён.'));
+      if (resetTimer && started()) warnings.push(I18n.t('Таймер вернётся к началу турнира.'));
+      if (warnings.length && !window.confirm(warnings.join(' ') + I18n.t(' Применить настройки?'))) return;
 
       if (structureChanged) {
         var previousScores = new Map(PAIRS.map(function (pair, j) { return [pair.join('-'), data.scores[j]]; }));
@@ -593,6 +726,7 @@
         renderSchedule();
       }
       data.minutes = setup.minutes;
+      data.title = $('tournament-title').value.trim();
       PLAN = plan;
       if (resetTimer) { P = phases(); T = freshTimer(); syncLock(); }
       applyFormat();
@@ -600,7 +734,7 @@
       save();
       saveTimer();
       renderTimer();
-      $('setup-status').textContent = 'Настройки применены.';
+      $('setup-status').textContent = I18n.t('Настройки применены.');
     });
     previewSetup();
     $('setup-section').hidden = false;
@@ -609,10 +743,14 @@
   function bindName(i) {
     var e = $('name' + i);
     e.value = data.names[i];
-    e.addEventListener('input', function () { data.names[i] = e.value; update(); save(); });
+    e.addEventListener('input', function () {
+      if (!allowSettings()) { e.value = data.names[i]; return; }
+      data.names[i] = e.value; update(); save();
+    });
   }
 
   function fillSetup() {
+    $('tournament-title').value = data.title;
     $('player-count').value = data.players;
     $('table-count').value = data.tables;
     $('tournament-minutes').value = data.minutes === null ? '' : data.minutes;
@@ -621,15 +759,15 @@
   var editedMatch;
   function editScore(j, round, table) {
     editedMatch = j;
-    var pair = PAIRS[j], score = data.scores[j];
-    $('score-context').textContent = 'Раунд ' + (round + 1) + ' · Стол ' + table + ' · До ' + data.target;
+    var pair = PAIRS[j], operation = queuedFor(j), score = operation?.review ? operation.score : data.scores[j];
+    $('score-context').textContent = I18n.t('Раунд ') + (round + 1) + I18n.t(' · Стол ') + table + I18n.t(' · До ') + data.target;
     $('score-name-a').textContent = name(pair[0]);
     $('score-name-b').textContent = name(pair[1]);
     $('score-a').value = score[0];
     $('score-b').value = score[1];
     $('score-timed').checked = score[2] === true;
     $('score-clear').hidden = !score.slice(0, 2).some(Boolean);
-    $('score-error').textContent = '';
+    $('score-error').textContent = operation?.review ? I18n.t('Сверьте результат с сервером и подтвердите свою правку.') : '';
     $('score-dialog').showModal();
     $('score-a').select();
   }
@@ -638,12 +776,8 @@
     var dialog = $('score-dialog');
     $('score-cancel').addEventListener('click', function () { dialog.close(); });
     $('score-clear').addEventListener('click', function () {
-      if (!window.confirm('Удалить результат этого матча?')) return;
-      data.scores[editedMatch] = ['', ''];
-      dialog.close();
-      update();
-      save();
-      $('score-announcement').textContent = 'Результат матча удалён.';
+      if (!window.confirm(I18n.t('Удалить результат этого матча?'))) return;
+      submitScore(['', ''], dialog);
     });
     $('score-form').addEventListener('submit', function (event) {
       event.preventDefault();
@@ -652,27 +786,39 @@
       var error = Tournament.checkScore(score, data.target, timed);
       if (error) {
         $('score-error').textContent = {
-          empty: 'Введите очки обоих участников.',
-          number: 'Введите целые числа от 0 до 99.',
-          tie: 'При равном счёте разыграйте решающее очко.',
-          time: 'Проверьте счёт. Если игра закончилась по сигналу, отметьте лимит времени.'
+          empty: I18n.t('Введите очки обоих участников.'),
+          number: I18n.t('Введите целые числа от 0 до 99.'),
+          tie: I18n.t('При равном счёте разыграйте решающее очко.'),
+          time: I18n.t('Проверьте счёт. Если игра закончилась по сигналу, отметьте лимит времени.')
         }[error];
         return;
       }
       if (timed) score.push(true);
+      submitScore(score, dialog);
+    });
+  }
+
+  function submitScore(score, dialog) {
+    if (mode === 'owner') {
+      var pair = PAIRS[editedMatch];
+      var error = sharing.score(editedMatch, score, name(pair[0]) + ' — ' + name(pair[1]));
+      if (error) { $('score-error').textContent = error; return; }
+      $('score-announcement').textContent = I18n.t('Результат добавлен в очередь.');
+    } else {
       data.scores[editedMatch] = score;
-      dialog.close();
       update();
       save();
-      $('score-announcement').textContent = $('state' + editedMatch).textContent;
-    });
+      $('score-announcement').textContent = $('state' + editedMatch)?.textContent || '';
+    }
+    dialog.close();
   }
   function bindFormat() {
     var radios = document.querySelectorAll('input[name="target"]'), r;
     function change(e) {
       var v = Number(e.target.value);
       if (v === data.target) return;
-      if (data.minutes === null && started() && !window.confirm('Длительность матчей изменится, таймер будет сброшен. Продолжить?')) { applyFormat(); return; }
+      if (!allowSettings()) { applyFormat(); return; }
+      if (data.minutes === null && started() && !window.confirm(I18n.t('Длительность матчей изменится, таймер будет сброшен. Продолжить?'))) { applyFormat(); return; }
       data.target = v;
       if (data.minutes === null) {
         PLAN = Tournament.timing(ROUNDS.length, fmt().play, null);
@@ -690,6 +836,7 @@
     $('viewer-banner').hidden = false;
     if (status.textContent !== text) status.textContent = text;
     showTournament(available);
+    $('archives-panel').hidden = !available;
   }
 
   function showTournament(available) {
@@ -700,11 +847,13 @@
     document.querySelector('header .metrics').hidden = !available;
   }
 
-  function receiveSharedBoard(snapshot, code) {
+  function receiveSharedBoard(snapshot, code, endDate) {
     if (code) viewCode = code;
+    var wasFinalized = finalizedAt;
+    finalizedAt = endDate || null;
     var next = sanitize(snapshot.data);
-    var rebuild = next.players !== data.players || next.tables !== data.tables || !$('match0');
-    var settingsChanged = rebuild || data.target !== next.target || data.minutes !== next.minutes;
+    var rebuild = next.players !== data.players || next.tables !== data.tables;
+    var settingsChanged = rebuild || data.target !== next.target || data.minutes !== next.minutes || data.title !== next.title;
     data = next;
     if (rebuild) {
       ROUNDS = Tournament.schedule(data.players, data.tables);
@@ -719,11 +868,16 @@
     }
     T = restoreTimer(snapshot.timer);
     if (!readOnly) {
+      $('setup-section').hidden = Boolean(finalizedAt);
+      $('names').closest('section').hidden = Boolean(finalizedAt);
+      $('timer-controls').hidden = Boolean(finalizedAt);
+      $('tstart').hidden = Boolean(finalizedAt);
       data.names.forEach(function (playerName, i) {
         if ($('name' + i).value !== playerName) $('name' + i).value = playerName;
       });
     }
     update();
+    if (endDate !== wasFinalized && $('archives-panel').open) loadArchives();
     tick();
     if (!readOnly) syncLock();
   }
@@ -735,6 +889,12 @@
     if (mode === 'choose') {
       if (lock) { var activeLock = lock; lock = null; activeLock.release().catch(function () {}); }
       $('timer-controls').open = false;
+    }
+    if (mode === 'local') {
+      $('setup-section').hidden = false;
+      $('names').closest('section').hidden = false;
+      $('timer-controls').hidden = false;
+      $('tstart').hidden = false;
     }
     if (mode !== 'choose') $('organizer').open = mode === 'local';
     info();
@@ -760,36 +920,103 @@
     body.replaceChildren(content);
   }
 
-  function openReport(event) {
-    if (mode === 'owner' && !sharing.isSaved()) {
-      $('report-notice').textContent = 'Дождитесь сохранения результатов на сервере и откройте протокол снова.';
-      return;
-    }
-    $('report-notice').textContent = '';
-    var matches = Tournament.reportMatches(ROUNDS, reportState.results, data.scores, data.names.map(function (_, i) { return name(i); }));
-    var complete = matches.played === PAIRS.length;
-    var code = mode === 'owner' ? $('session-code').textContent : (viewCode || joinCode || '');
-    var stamp = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'long', timeStyle: 'short' }).format(new Date());
-    var label = complete ? 'Итоговый протокол' : 'Промежуточный протокол';
-    $('report-title').textContent = label;
-    $('report-meta').textContent = (code ? 'Код: ' + code.replace(/-/g, '').match(/.{1,4}/g).join('-') + ' · ' : '') +
-      (mode === 'local' ? 'Локальный турнир · ' : '') + 'Сформирован: ' + stamp;
-    $('report-summary').textContent = 'Игроков: ' + data.players + ' · Столов: ' + data.tables +
-      ' · Игра до ' + data.target + ' ' + fmt().word + ' · Сыграно ' + matches.played + ' из ' + PAIRS.length;
-    $('report-outcome').textContent = $('result').textContent.replace(/^🏆\s*/u, '');
-    $('report-outcome').hidden = !complete;
-    reportRows($('report-ranking'), reportState.ranking);
+  var exportReport;
+  function renderReport(event, source, code, archivedAt) {
+    var tournament = sanitize(source), names = tournament.names.map(shownName);
+    var rounds = Tournament.schedule(tournament.players, tournament.tables), pairs = rounds.flat();
+    var results = tournament.scores.map(function (score) { return assess(score, tournament.target); });
+    var ranking = rankMatches(tournament.players, pairs, results, function (i) { return names[i]; });
+    var matches = Tournament.reportMatches(rounds, results, tournament.scores, names);
+    matches.rows.forEach(function (row) { row[6] = I18n.t(row[6]); });
+    var complete = Boolean(archivedAt) || (mode === 'local' && matches.played === pairs.length);
+    var stamp = new Intl.DateTimeFormat(I18n.locale, { dateStyle: 'long', timeStyle: 'short' });
+    var label = complete ? I18n.t('Итоговый протокол') : I18n.t('Промежуточный протокол');
+    var time = archivedAt ? new Date(archivedAt * 1000) : new Date();
+    $('report-title').textContent = tournament.title ? label + ' · ' + tournament.title : label;
+    $('report-meta').textContent = (code ? I18n.t('Код: ') + code.replace(/-/g, '').match(/.{1,4}/g).join('-') + ' · ' : '') +
+      (mode === 'local' ? I18n.t('Локальный турнир · ') : '') + (archivedAt ? I18n.t('Завершён: ') : I18n.t('Сформирован: ')) + stamp.format(time);
+    $('report-summary').textContent = I18n.t('Игроков: ') + tournament.players + I18n.t(' · Столов: ') + tournament.tables +
+      I18n.t(' · Игра до ') + tournament.target + ' ' + FORMATS[tournament.target].word + I18n.t(' · Сыграно ') + matches.played + I18n.t(' из ') + pairs.length;
+    $('report-outcome').textContent = matches.played === pairs.length ? resultText(ranking.leaders) : '';
+    $('report-outcome').hidden = matches.played !== pairs.length;
+    var rows = ranking.rows.map(function (entry) { return entry.cells.slice(0, 8); });
+    reportRows($('report-ranking'), rows);
     reportRows($('report-matches'), matches.rows);
+    exportReport = { ranking: rows, matches: matches.rows, code: code, complete: complete };
     reportReturn = event.currentTarget;
     reportScroll = window.scrollY;
     $('results-report').hidden = false;
     document.body.classList.add('report-open');
-    document.title = label + (code ? ' — ' + code : '') + ' — Настольный теннис';
+    document.title = label + (code ? ' — ' + code : '') + I18n.t(' — Настольный теннис');
     $('report-title').focus();
     window.scrollTo(0, 0);
   }
 
+  function openReport(event) {
+    if (mode === 'owner' && !sharing.isSaved()) {
+      $('report-notice').textContent = I18n.t('Дождитесь сохранения результатов на сервере и откройте протокол снова.');
+      return;
+    }
+    $('report-notice').textContent = '';
+    renderReport(event, data, mode === 'owner' ? $('session-code').textContent : (viewCode || joinCode || ''), finalizedAt);
+  }
+
+  function exportCsv() {
+    if (!exportReport) return;
+    var rows = [[exportReport.complete ? I18n.t('Итоговый протокол') : I18n.t('Промежуточный протокол')],
+      [$('report-title').textContent], [$('report-meta').textContent], [$('report-summary').textContent]];
+    [$('report-ranking'), $('report-matches')].forEach(function (body, i) {
+      var table = body.closest('table');
+      rows.push([], Array.from(table.tHead.rows[0].cells, function (cell) { return cell.textContent; }));
+      rows.push.apply(rows, i === 0 ? exportReport.ranking : exportReport.matches);
+    });
+    var csv = rows.map(function (row) {
+      return row.map(function (cell) {
+        var value = String(cell);
+        if (/^[\s]*[=+@-]/.test(value) && !/^[+-]?\d+$/.test(value)) value = "'" + value;
+        return '"' + value.replace(/"/g, '""') + '"';
+      }).join(',');
+    }).join('\r\n');
+    var link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob(['\ufeff', csv], { type: 'text/csv;charset=utf-8' }));
+    link.download = 'tennis-' + (exportReport.code || 'local') + '-results.csv';
+    link.click();
+    setTimeout(function () { URL.revokeObjectURL(link.href); }, 1000);
+  }
+
+  async function loadArchives() {
+    if (!archiveSource || !$('archives-panel').open) return;
+    var list = $('archives-list'), status = $('archives-status');
+    status.textContent = I18n.t('Загружаем протоколы…');
+    list.replaceChildren();
+    try {
+      var result = await archiveSource.archives();
+      status.textContent = result.archives.length ? '' : I18n.t('Сохранённых протоколов пока нет.');
+      result.archives.forEach(function (archive) {
+        var stamp = new Intl.DateTimeFormat(I18n.locale, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(archive.finalizedAt * 1000));
+        var item = document.createElement('li'), button = make('button', (archive.title ? archive.title + ' · ' : '') + stamp);
+        button.type = 'button';
+        button.addEventListener('click', async function () {
+          var sourceButton = this;
+          try {
+            var record = await archiveSource.archive(archive.revision);
+            renderReport({ currentTarget: sourceButton }, record.snapshot.data, record.code, record.finalizedAt);
+          } catch { status.textContent = I18n.t('Не удалось открыть протокол.'); }
+        });
+        item.appendChild(button);
+        list.appendChild(item);
+      });
+    } catch { status.textContent = I18n.t('Не удалось загрузить протоколы.'); }
+  }
+
   renderSchedule();
+  $('language-switch').addEventListener('click', function () {
+    if ($('score-dialog').open || (sharing && !sharing.mayNavigate())) {
+      $('language-status').textContent = I18n.t('Дождитесь сохранения перед сменой языка.');
+      return;
+    }
+    I18n.switchLanguage();
+  });
   $('my-player').addEventListener('change', function (event) {
     selectedPlayer = event.target.value === '' ? null : Number(event.target.value);
     store(playerKey, selectedPlayer);
@@ -798,7 +1025,7 @@
   $('standings-detail').addEventListener('click', function () {
     var open = $('standings').classList.toggle('show-details');
     $('standings-detail').setAttribute('aria-expanded', open);
-    $('standings-detail').textContent = open ? 'Кратко' : 'Подробности';
+    $('standings-detail').textContent = open ? I18n.t('Кратко') : I18n.t('Подробности');
     $('standings-key').hidden = !open;
   });
   applyFormat();
@@ -808,6 +1035,9 @@
   $('standings').classList.add('player-standings');
   $('report-open').hidden = false;
   $('report-open').addEventListener('click', openReport);
+  $('archives-panel').addEventListener('toggle', loadArchives);
+  $('report-csv').addEventListener('click', exportCsv);
+  $('toggle-rounds').addEventListener('click', function () { allRounds = !allRounds; renderRounds(lastRound); paintVisibleRounds(); });
   $('report-print').addEventListener('click', function () { window.print(); });
   $('report-close').addEventListener('click', function () {
     $('results-report').hidden = true;
@@ -821,16 +1051,17 @@
     $('tstart').hidden = true;
     $('timer-controls').hidden = true;
     $('organizer').hidden = true;
-    showSharedBoard('Загружаем общую таблицу…', false);
-    SharedBoard.viewer(boardId, joinCode, receiveSharedBoard, showSharedBoard);
-    setInterval(tick, 250);
+    showSharedBoard(I18n.t('Загружаем общую таблицу…'), false);
+    archiveSource = SharedBoard.viewer(boardId, joinCode, receiveSharedBoard, showSharedBoard);
+    setInterval(function () { if (!document.hidden) tick(); }, 1000);
+    document.addEventListener('visibilitychange', tick);
   } else {
     bindSetup();
     bindFormat();
     bindScoreDialog();
     $('print').addEventListener('click', openReport);
     $('reset').addEventListener('click', function () {
-      if (window.confirm('Удалить все результаты? Имена участников сохранятся.')) {
+      if (allowSettings() && window.confirm(I18n.t('Удалить все результаты? Имена участников сохранятся.'))) {
         data.scores = blankScores(PAIRS.length);
         update(); save();
       }
@@ -845,12 +1076,14 @@
     if (window.isSecureContext && window.crypto && crypto.randomUUID) {
       sharing = SharedBoard.organizer({
         snapshot: function () { return { data: data, timer: T }; },
-        initial: initialSnapshot, mode: organizerMode, receive: receiveSharedBoard,
+        initial: initialSnapshot, mode: organizerMode, receive: receiveSharedBoard, queue: showQueue,
+        scores: function (scores) { data.scores = scores; update(); },
         canRefresh: function () {
           return !$('score-dialog').open && !document.activeElement.closest('#setup, #names, #format');
         },
         load: load, store: store
       });
+      archiveSource = sharing;
     } else {
       organizerMode('local');
     }

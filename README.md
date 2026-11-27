@@ -25,8 +25,16 @@ for offline use or for importing results from the older app.
   enter the same code plus a separate key to resume editing from any browser.
   Tournaments remain available until the organizer removes them.
 - **Match report**: open the report from the standings to print or save to PDF.
-  It includes the standings and each scheduled match. It is marked as final
-  when every match has a result.
+  CSV export includes the standings and all match scores. Finish a completed
+  tournament to archive and lock the final report. Reopening for corrections
+  preserves earlier reports.
+- **Score sync**: each organizer result is saved to a local queue before the
+  server receives it. Pending scores survive reloads. A conflicting edit is
+  marked for review. The server remains authoritative for standings.
+- **Event access**: organize named tournaments, show a player QR code, and
+  rotate the organizer key. Recent tournaments and the language preference
+  are remembered in the current browser. The EN/RU switch preserves the
+  tournament code in a player link.
 
 ## Files
 `index.html` (page) · `styles.css` · `tournament.js` (schedule and timing) · `app.js` · `sw.js` (offline cache) ·
@@ -41,7 +49,8 @@ opening the file from disk.
 Cloudflare Pages deploys `main` to `tennis.ezherebetskii.com`. The project
 uses the repository root as its output directory and runs `exit 0` for its build.
 Deployments with sharing need the `TENNIS_DB` D1 binding to the database created
-with `database/boards.sql`, followed once by `database/tournament-codes.sql`.
+with `database/boards.sql`, followed once by `database/tournament-codes.sql`
+and then `database/tournament-lifecycle.sql`.
 The `/api/boards` endpoint reports whether the database is available. Static
 hosting, including GitHub Pages, supports an explicitly selected local draft.
 

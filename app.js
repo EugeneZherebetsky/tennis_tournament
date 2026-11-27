@@ -8,8 +8,9 @@
   };
   var KEY = 'tt-tournament-v3', TKEY = 'tt-timer-v2';
   var MIN_PLAYERS = 2, MAX_PLAYERS = 24, MAX_TABLES = 12, MAX_MINUTES = 10080;
-  var boardId = new URLSearchParams(location.search).get('board');
-  var readOnly = boardId !== null, sharing;
+  var access = new URLSearchParams(location.search);
+  var boardId = access.get('board'), joinCode = access.get('code');
+  var readOnly = boardId !== null || joinCode !== null, sharing, mode = readOnly ? 'viewer' : 'choose';
 
   function $(id) { return document.getElementById(id); }
 
@@ -65,7 +66,13 @@
   var ROUNDS = Tournament.schedule(data.players, data.tables);
   var PAIRS = ROUNDS.flat();
   var PLAN = Tournament.timing(ROUNDS.length, fmt().play, data.minutes);
-  function save() { store(KEY, data); info(); if (sharing) sharing.changed(); }
+  function save() {
+    if (mode === 'owner') { sharing.changed(); return; }
+    if (mode !== 'local') return;
+    store(KEY, data);
+    localDraft.data = structuredClone(data);
+    info();
+  }
   function fmt() { return FORMATS[data.target] || FORMATS[11]; }
   function name(i) { return String(data.names[i] || '').trim() || 'П' + (i + 1); }
 
@@ -241,10 +248,13 @@
     return f;
   }
   var T = readOnly ? freshTimer() : loadTimer();
+  var localDraft = readOnly ? null : structuredClone({ data: data, timer: T });
   function saveTimer() {
-    if (readOnly) return;
-    store(TKEY, T);
-    if (sharing) sharing.changed();
+    if (mode === 'owner') { sharing.changed(); return; }
+    if (mode === 'local') {
+      store(TKEY, T);
+      localDraft.timer = structuredClone(T);
+    }
   }
   function remaining() { return T.running ? Math.max(0, T.end - Date.now()) : T.left; }
   function started() { return T.running || T.i > 0 || T.left < dur(0); }
@@ -295,7 +305,7 @@
       lockPending = true;
       navigator.wakeLock.request('screen').then(function (l) {
         lockPending = false;
-        if (!T.running) { l.release().catch(function () {}); return; }
+        if (!T.running || mode === 'choose') { l.release().catch(function () {}); return; }
         lock = l;
         l.addEventListener('release', function () { if (lock === l) lock = null; });
       }).catch(function () { lockPending = false; });
@@ -395,16 +405,22 @@
         T = freshTimer(); saveTimer(); syncLock(); renderTimer();
       }
     });
-    document.addEventListener('visibilitychange', function () { if (actx && document.visibilityState === 'visible') audio(); tick(); syncLock(); });
+    document.addEventListener('visibilitychange', function () {
+      if (mode === 'choose') return;
+      if (actx && document.visibilityState === 'visible') audio();
+      tick();
+      syncLock();
+    });
     // Browsers only allow sound after a user gesture; unlock on the first tap anywhere.
     document.addEventListener('pointerdown', function unlock() { audio(); document.removeEventListener('pointerdown', unlock); });
-    setInterval(tick, 250);
+    setInterval(function () { if (mode !== 'choose') tick(); }, 250);
   }
 
   // ---------- Status line & offline ----------
   var offlineReady = false;
   function info() {
-    var t = storageOK ? 'Настройки, имена, результаты и таймер сохраняются в этом браузере.'
+    var t = mode === 'owner' ? 'Официальные данные турнира хранятся на сервере.'
+      : storageOK ? 'Настройки, имена, результаты и таймер сохраняются в этом браузере.'
       : 'Автоподсчёт работает, но локальное сохранение недоступно. Не закрывайте страницу до окончания турнира.';
     if (offlineReady) t += ' Страница доступна без интернета.';
     if (navigator.onLine === false) t += ' Сейчас нет сети — работа офлайн.';
@@ -541,9 +557,7 @@
 
   function bindSetup() {
     var form = $('setup');
-    $('player-count').value = data.players;
-    $('table-count').value = data.tables;
-    $('tournament-minutes').value = data.minutes === null ? '' : data.minutes;
+    fillSetup();
     form.addEventListener('input', function () { $('setup-status').textContent = ''; previewSetup(); });
     form.addEventListener('submit', function (event) {
       event.preventDefault();
@@ -590,6 +604,13 @@
     var e = $('name' + i);
     e.value = data.names[i];
     e.addEventListener('input', function () { data.names[i] = e.value; update(); save(); });
+  }
+
+  function fillSetup() {
+    $('player-count').value = data.players;
+    $('table-count').value = data.tables;
+    $('tournament-minutes').value = data.minutes === null ? '' : data.minutes;
+    previewSetup();
   }
   var editedMatch;
   function editScore(j, round, table) {
@@ -660,11 +681,17 @@
 
   function showSharedBoard(text, available) {
     var status = $('view-status');
-    status.hidden = false;
+    $('viewer-banner').hidden = false;
     if (status.textContent !== text) status.textContent = text;
+    showTournament(available);
+  }
+
+  function showTournament(available) {
     ['match-toolbar', 'my-matches', 'schedule', 'standings', 'rules-panel'].forEach(function (id) {
       $(id).hidden = !available;
     });
+    $('matchsummary').hidden = !available;
+    document.querySelector('header .metrics').hidden = !available;
   }
 
   function receiveSharedBoard(snapshot) {
@@ -681,10 +708,39 @@
       PLAN = Tournament.timing(ROUNDS.length, fmt().play, data.minutes);
       P = phases();
       applyFormat();
+      if (!readOnly) fillSetup();
     }
     T = restoreTimer(snapshot.timer);
+    if (!readOnly) {
+      data.names.forEach(function (playerName, i) {
+        if ($('name' + i).value !== playerName) $('name' + i).value = playerName;
+      });
+    }
     update();
     tick();
+    if (!readOnly) syncLock();
+  }
+
+  function organizerMode(next) {
+    mode = next;
+    showTournament(mode !== 'choose');
+    $('organizer').hidden = mode === 'choose';
+    if (mode === 'choose') {
+      if (lock) { var activeLock = lock; lock = null; activeLock.release().catch(function () {}); }
+      $('timer-controls').open = false;
+    }
+    if (mode !== 'choose') $('organizer').open = mode === 'local';
+    info();
+  }
+
+  function initialSnapshot(importDraft) {
+    if (importDraft) return structuredClone(localDraft);
+    var setup = sanitize(null);
+    var plan = Tournament.timing(Tournament.schedule(setup.players, setup.tables).length, FORMATS[setup.target].play, setup.minutes);
+    return { data: setup, timer: {
+      i: 0, running: false, end: 0, left: plan.warm * 1000, warned: -1,
+      plan: [setup.players, setup.tables, plan.total].join('/')
+    } };
   }
 
   renderSchedule();
@@ -710,7 +766,7 @@
     $('timer-controls').hidden = true;
     $('organizer').hidden = true;
     showSharedBoard('Загружаем общую таблицу…', false);
-    SharedBoard.viewer(boardId, receiveSharedBoard, showSharedBoard);
+    SharedBoard.viewer(boardId, joinCode, receiveSharedBoard, showSharedBoard);
     setInterval(tick, 250);
   } else {
     bindSetup();
@@ -728,15 +784,19 @@
     info();
     $('actions').hidden = false;
     $('format').hidden = false;
-    $('match-toolbar').hidden = false;
-    $('my-matches').hidden = false;
     if (started()) $('organizer').open = false;
     bindTimer();
-    saveTimer();
-    tick();
-    syncLock();
     if (window.isSecureContext && window.crypto && crypto.randomUUID) {
-      sharing = SharedBoard.organizer(function () { return { data: data, timer: T }; }, load, store);
+      sharing = SharedBoard.organizer({
+        snapshot: function () { return { data: data, timer: T }; },
+        initial: initialSnapshot, mode: organizerMode, receive: receiveSharedBoard,
+        canRefresh: function () {
+          return !$('score-dialog').open && !document.activeElement.closest('#setup, #names, #format');
+        },
+        load: load, store: store
+      });
+    } else {
+      organizerMode('local');
     }
   }
   if (document.readyState === 'complete') registerSW(); else window.addEventListener('load', registerSW);

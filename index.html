@@ -13,6 +13,36 @@
 <script src="tournament.js" defer></script>
 <script src="shared.js" defer></script>
 <script src="app.js" defer></script></head><body><main><header><div class="eyebrow">Круговой турнир · каждый с каждым</div><h1>Настольный теннис</h1><div id="matchsummary">10 матчей · 5 раундов · по 4 матча на участника</div><div class="metrics"><div class="metric"><b id="mplayers">5</b><span>Игроки</span></div><div class="metric"><b id="mtables">2</b><span>Столы</span></div><div class="metric"><b id="mtotal">60</b><span>Минуты</span></div></div></header>
+<section id="tournament-access" hidden>
+  <h2>Открыть турнир</h2>
+  <p class="notice">По коду доступны расписание, таймер и результаты.</p>
+  <form id="join-tournament">
+    <label for="join-code">Код турнира
+      <input id="join-code" type="text" maxlength="20" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX" required>
+    </label>
+    <div class="actions"><button type="submit" value="view" class="primary">Открыть как игрок</button></div>
+    <details>
+      <summary>Вход для организатора</summary>
+      <label for="join-key">Ключ организатора
+        <input id="join-key" type="password" maxlength="80" autocomplete="off" spellcheck="false">
+      </label>
+      <div class="actions"><button type="submit" value="manage">Войти как организатор</button></div>
+    </details>
+  </form>
+  <div id="create-options">
+    <h3>Новый турнир</h3>
+    <label class="time-finish"><input id="import-draft" type="checkbox"> Перенести локальные настройки и результаты</label>
+    <button id="create-tournament" type="button">Создать турнир на сервере</button>
+  </div>
+  <p id="access-status" class="notice" role="status"></p>
+  <button id="resume-tournament" type="button" hidden>Продолжить управление</button>
+  <button id="local-tournament" type="button">Открыть локальный черновик</button>
+</section>
+<section id="tournament-session" class="tournament-session" hidden aria-label="Состояние турнира">
+  <div id="server-session" hidden><span>Код для игроков</span> <strong id="session-code"></strong></div>
+  <p id="session-status" class="notice" role="status"></p>
+  <button id="leave-session" type="button">К списку действий</button>
+</section>
 <div id="match-toolbar" class="match-toolbar" hidden><section class="timerbar" id="timer" hidden aria-label="Таймер турнира"><div class="tinfo"><b id="tphase">Разминка</b><span id="tnext">Далее: Раунд 1 · игра</span></div><div class="tclock" id="tclock" role="timer">05:00</div><div class="tbtns"><button class="primary" id="tstart">Старт</button><details id="timer-controls"><summary aria-label="Управление этапами">⋯</summary><div class="timer-controls-menu"><button id="tprev" aria-label="Предыдущий этап" title="Предыдущий этап">⏮</button><button id="tskip" aria-label="Следующий этап" title="Следующий этап">⏭</button><button id="treset" aria-label="Сбросить таймер" title="Сбросить таймер">↺</button></div></details></div><div class="tprog"><i id="tprog"></i></div></section>
   <nav class="match-nav" aria-label="Турнир">
     <a href="#schedule" id="jump-now">Сейчас</a>
@@ -20,7 +50,7 @@
     <a href="#standings">Таблица</a>
   </nav>
 </div>
-<p class="shared-notice" id="view-status" role="status" hidden></p>
+<div id="viewer-banner" class="shared-notice" hidden><p id="view-status" role="status"></p><a href="./">Открыть другой турнир</a></div>
 <section id="my-matches" hidden>
   <h2>Мои матчи</h2>
   <label class="player-picker" for="my-player">Я играю как
@@ -56,16 +86,24 @@
 <section><h2>1. Участники</h2><div class="names" id="names"><label for="name0">Игрок 1<input id="name0" value="П1" maxlength="40" autocomplete="off"></label><label for="name1">Игрок 2<input id="name1" value="П2" maxlength="40" autocomplete="off"></label><label for="name2">Игрок 3<input id="name2" value="П3" maxlength="40" autocomplete="off"></label><label for="name3">Игрок 4<input id="name3" value="П4" maxlength="40" autocomplete="off"></label><label for="name4">Игрок 5<input id="name4" value="П5" maxlength="40" autocomplete="off"></label></div><fieldset class="format" id="format" hidden><legend>Матч до</legend><label><input type="radio" name="target" value="11" checked> 11 очков</label><label><input type="radio" name="target" value="21"> 21 очка</label><span class="fmthint" id="fmthint"></span></fieldset><p class="notice save" id="saveinfo">Автоподсчёт не запущен. Если это сообщение остаётся, откройте страницу в браузере с поддержкой JavaScript, а не в предпросмотре файла. Таблицы ниже доступны для просмотра и ручного заполнения, если просмотрщик разрешает ввод.</p><div class="actions" id="actions" hidden><button class="primary" id="print">Распечатать / PDF</button><button id="reset">Сбросить счёт</button></div></section>
 <section id="sharing" hidden>
   <h2>Общая таблица</h2>
-  <p class="notice">По ссылке видны имена, расписание и результаты. Изменения публикуются из этого браузера.</p>
+  <p class="notice">Игроки открывают турнир по коду или ссылке и видят обновления. Ключ организатора позволяет управлять турниром с другого устройства.</p>
   <div class="actions">
-    <button id="share-publish" type="button">Опубликовать таблицу</button>
-    <button id="share-copy" type="button" hidden>Копировать ссылку</button>
-    <button id="share-stop" type="button" hidden>Остановить публикацию</button>
+    <button id="share-code-copy" type="button">Копировать код</button>
+    <button id="share-copy" type="button">Копировать ссылку</button>
   </div>
-  <label id="share-link-label" for="share-link" hidden>Ссылка для игроков
+  <label id="share-link-label" for="share-link">Ссылка для игроков
     <input id="share-link" type="url" readonly>
   </label>
+  <details>
+    <summary>Ключ организатора</summary>
+    <p class="notice">Сохраните ключ в безопасном месте. Любой, кто знает код турнира и этот ключ, может менять результаты.</p>
+    <label for="organizer-key">Ключ для входа с другого устройства
+      <input id="organizer-key" type="password" readonly autocomplete="off" spellcheck="false">
+    </label>
+    <div class="actions"><button id="key-reveal" type="button">Показать ключ</button><button id="key-copy" type="button">Копировать ключ</button></div>
+  </details>
   <p id="share-status" class="notice" role="status"></p>
+  <button id="share-stop" type="button">Удалить турнир с сервера</button>
 </section>
 </details>
 <section id="schedule"><h2>2. Расписание и счёт</h2><div class="timeline"><div>0–5<br>Разминка</div><div class="main" id="tlmain">5–55 мин<br>5 раундов по 10 минут</div><div id="tlend">55–60<br>Итоги</div></div><p class="notice" id="schedinfo">Время отсчитывается от начала турнира. В каждом раунде — 8 минут игры и 2 минуты на смену участников.</p><div class="legend"><span><i class="dot"></i> Стол / матч</span><span><i class="dot restcolor"></i> Отдых</span><span><i class="dot wincolor"></i> Победитель</span></div><p class="notice" id="scoreinfo">П1–П5 — номера участников. При работающем автоподсчёте введённые выше имена заменят обозначения. В поля рядом с именами внесите итоговые очки (например, 11 и 8).</p><div class="rounds" id="rounds"><div class="round" id="round0"><div class="roundhead"><b id="rtime0">Раунд 1 · 5–15 мин</b><span class="rest" id="rest0">Отдых: П5</span></div><div class="matches"><div class="match"><div class="tabletag">Стол 1</div><div class="matchrow"><label class="player" id="p0-0" for="s0-0">П1</label><input class="score" id="s0-0" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" aria-label="Очки П1" placeholder="–"></div><div class="matchrow"><label class="player" id="p0-1" for="s0-1">П2</label><input class="score" id="s0-1" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" aria-label="Очки П2" placeholder="–"></div><div class="state" id="state0">Ожидает результата</div></div><div class="match"><div class="tabletag">Стол 2</div><div class="matchrow"><label class="player" id="p1-0" for="s1-0">П3</label><input class="score" id="s1-0" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" aria-label="Очки П3" placeholder="–"></div><div class="matchrow"><label class="player" id="p1-1" for="s1-1">П4</label><input class="score" id="s1-1" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" aria-label="Очки П4" placeholder="–"></div><div class="state" id="state1">Ожидает результата</div></div></div></div><div class="round" id="round1"><div class="roundhead"><b id="rtime1">Раунд 2 · 15–25 мин</b><span class="rest" id="rest1">Отдых: П4</span></div><div class="matches"><div class="match"><div class="tabletag">Стол 1</div><div class="matchrow"><label class="player" id="p2-0" for="s2-0">П1</label><input class="score" id="s2-0" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" aria-label="Очки П1" placeholder="–"></div><div class="matchrow"><label class="player" id="p2-1" for="s2-1">П3</label><input class="score" id="s2-1" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" aria-label="Очки П3" placeholder="–"></div><div class="state" id="state2">Ожидает результата</div></div><div class="match"><div class="tabletag">Стол 2</div><div class="matchrow"><label class="player" id="p3-0" for="s3-0">П2</label><input class="score" id="s3-0" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" aria-label="Очки П2" placeholder="–"></div><div class="matchrow"><label class="player" id="p3-1" for="s3-1">П5</label><input class="score" id="s3-1" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" aria-label="Очки П5" placeholder="–"></div><div class="state" id="state3">Ожидает результата</div></div></div></div><div class="round" id="round2"><div class="roundhead"><b id="rtime2">Раунд 3 · 25–35 мин</b><span class="rest" id="rest2">Отдых: П2</span></div><div class="matches"><div class="match"><div class="tabletag">Стол 1</div><div class="matchrow"><label class="player" id="p4-0" for="s4-0">П1</label><input class="score" id="s4-0" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" aria-label="Очки П1" placeholder="–"></div><div class="matchrow"><label class="player" id="p4-1" for="s4-1">П4</label><input class="score" id="s4-1" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" aria-label="Очки П4" placeholder="–"></div><div class="state" id="state4">Ожидает результата</div></div><div class="match"><div class="tabletag">Стол 2</div><div class="matchrow"><label class="player" id="p5-0" for="s5-0">П3</label><input class="score" id="s5-0" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" aria-label="Очки П3" placeholder="–"></div><div class="matchrow"><label class="player" id="p5-1" for="s5-1">П5</label><input class="score" id="s5-1" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" aria-label="Очки П5" placeholder="–"></div><div class="state" id="state5">Ожидает результата</div></div></div></div><div class="round" id="round3"><div class="roundhead"><b id="rtime3">Раунд 4 · 35–45 мин</b><span class="rest" id="rest3">Отдых: П3</span></div><div class="matches"><div class="match"><div class="tabletag">Стол 1</div><div class="matchrow"><label class="player" id="p6-0" for="s6-0">П1</label><input class="score" id="s6-0" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" aria-label="Очки П1" placeholder="–"></div><div class="matchrow"><label class="player" id="p6-1" for="s6-1">П5</label><input class="score" id="s6-1" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" aria-label="Очки П5" placeholder="–"></div><div class="state" id="state6">Ожидает результата</div></div><div class="match"><div class="tabletag">Стол 2</div><div class="matchrow"><label class="player" id="p7-0" for="s7-0">П2</label><input class="score" id="s7-0" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" aria-label="Очки П2" placeholder="–"></div><div class="matchrow"><label class="player" id="p7-1" for="s7-1">П4</label><input class="score" id="s7-1" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" aria-label="Очки П4" placeholder="–"></div><div class="state" id="state7">Ожидает результата</div></div></div></div><div class="round" id="round4"><div class="roundhead"><b id="rtime4">Раунд 5 · 45–55 мин</b><span class="rest" id="rest4">Отдых: П1</span></div><div class="matches"><div class="match"><div class="tabletag">Стол 1</div><div class="matchrow"><label class="player" id="p8-0" for="s8-0">П2</label><input class="score" id="s8-0" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" aria-label="Очки П2" placeholder="–"></div><div class="matchrow"><label class="player" id="p8-1" for="s8-1">П3</label><input class="score" id="s8-1" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" aria-label="Очки П3" placeholder="–"></div><div class="state" id="state8">Ожидает результата</div></div><div class="match"><div class="tabletag">Стол 2</div><div class="matchrow"><label class="player" id="p9-0" for="s9-0">П4</label><input class="score" id="s9-0" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" aria-label="Очки П4" placeholder="–"></div><div class="matchrow"><label class="player" id="p9-1" for="s9-1">П5</label><input class="score" id="s9-1" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" aria-label="Очки П5" placeholder="–"></div><div class="state" id="state9">Ожидает результата</div></div></div></div></div></section>

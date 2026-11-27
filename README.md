@@ -2,7 +2,8 @@
 
 A dependency-free web app for running a round-robin table
 tennis tournament (UI in Russian). Confirm match results to update the rankings.
-The organizer's tournament is saved in the browser's `localStorage`.
+Official tournaments are stored in Cloudflare D1. A local draft remains available
+for offline use or for importing results from the older app.
 
 - **Tournament setup**: 2–24 players and 1–12 tables. The schedule assigns each
   pair one match and keeps rounds within the table limit.
@@ -19,10 +20,10 @@ The organizer's tournament is saved in the browser's `localStorage`.
 - Ranking: wins → head-to-head among tied players → point difference → points scored.
 - **Player view**: choose a name to see the current assignment, next opponent,
   and personal schedule. The round, personal matches, and standings have quick links.
-- **Shared standings**: opt in under **Настройки, участники и публикация**. The
-  link shows the event, scores, and timer with automatic updates. The scorekeeper
-  browser retains the edit key. Its **Остановить публикацию** button closes the
-  shared link. A link expires after seven days without updates.
+- **Tournament codes**: players enter the 12-character code or open its link
+  to see read-only, automatically updated results and the timer. Organizers
+  enter the same code plus a separate key to resume editing from any browser.
+  Tournaments remain available until the organizer removes them.
 
 ## Files
 `index.html` (page) · `styles.css` · `tournament.js` (schedule and timing) · `app.js` · `sw.js` (offline cache) ·
@@ -37,9 +38,9 @@ opening the file from disk.
 Cloudflare Pages deploys `main` to `tennis.ezherebetskii.com`. The project
 uses the repository root as its output directory and runs `exit 0` for its build.
 Deployments with sharing need the `TENNIS_DB` D1 binding to the database created
-with `database/boards.sql`. The `/api/boards` endpoint reports whether the
-scoreboard database is available. Static hosting, including GitHub Pages,
-supports local tournaments without shared standings.
+with `database/boards.sql`, followed once by `database/tournament-codes.sql`.
+The `/api/boards` endpoint reports whether the database is available. Static
+hosting, including GitHub Pages, supports an explicitly selected local draft.
 
 Run the scheduling, scoring, and scoreboard API checks with Node 22+
 using `node --test tournament.test.cjs boards.test.mjs`.

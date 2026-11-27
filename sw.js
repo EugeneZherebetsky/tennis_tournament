@@ -1,7 +1,7 @@
 // Offline support: every file is precached and served cache-first, so the page
 // opens instantly with no signal. Bump VERSION whenever any file changes;
 // visitors get the new version on their next visit after it has downloaded.
-var VERSION = 'tt-2026-11-27-3';
+var VERSION = 'tt-2026-11-27-4';
 var ASSETS = ['./', 'index.html', 'styles.css', 'tournament.js', 'app.js', 'shared.js', 'manifest.webmanifest', 'icon.svg',
   'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png'];
 

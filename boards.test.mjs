@@ -7,6 +7,7 @@ import { handleBoards } from './lib/boards.mjs';
 function setup() {
   const db = new DatabaseSync(':memory:');
   db.exec(readFileSync(new URL('./database/boards.sql', import.meta.url), 'utf8'));
+  db.exec(readFileSync(new URL('./database/tournament-codes.sql', import.meta.url), 'utf8'));
   const binding = {
     prepare(sql) {
       const stmt = db.prepare(sql);
@@ -75,4 +76,44 @@ test('invalid snapshots and cross-origin writes are rejected, and expired boards
   assert.equal((await call('POST', '', { id, snapshot }, secret)).status, 201);
   db.prepare('UPDATE boards SET expires_at = 0 WHERE id = ?').run(id);
   assert.equal((await call('GET', '/' + id)).status, 404);
+});
+
+test('a player code reads the tournament and the organizer key resumes edits from another client', async () => {
+  const { call, db } = setup();
+  const created = await call('POST', '', { id, snapshot }, secret);
+  const { code } = await created.json();
+  assert.match(code, /^[0-9A-HJKMNP-TV-Z]{12}$/);
+  const share = '/' + code.match(/.{4}/g).join('-').toLowerCase();
+
+  const player = await call('GET', share);
+  assert.equal(player.status, 200);
+  const playerBody = await player.json();
+  assert.deepEqual(playerBody.snapshot, snapshot);
+  assert.equal(playerBody.id, undefined);
+  assert.equal(playerBody.key, undefined);
+
+  assert.equal((await call('GET', share, undefined, wrongSecret)).status, 403);
+  const organizer = await call('GET', share, undefined, secret);
+  assert.equal(organizer.status, 200);
+  const resumed = await organizer.json();
+  assert.equal(resumed.id, id);
+  assert.equal(resumed.code, code);
+
+  const next = structuredClone(resumed.snapshot);
+  next.data.scores[0] = ['11', '9'];
+  const saved = await call('PUT', '/' + resumed.id, next, secret, organizer.headers.get('ETag'));
+  assert.equal(saved.status, 200);
+  assert.deepEqual((await (await call('GET', share)).json()).snapshot, next);
+  assert.ok(db.prepare('SELECT expires_at FROM boards WHERE id = ?').get(id).expires_at > 2147483647);
+});
+
+test('an older tournament link still works and the scorekeeper can recover a player code', async () => {
+  const { call, db } = setup();
+  await call('POST', '', { id, snapshot }, secret);
+  db.prepare('UPDATE boards SET join_code = NULL WHERE id = ?').run(id);
+  assert.equal((await call('GET', '/' + id)).status, 200);
+  const resumed = await call('GET', '/' + id, undefined, secret);
+  const { code } = await resumed.json();
+  assert.match(code, /^[0-9A-HJKMNP-TV-Z]{12}$/);
+  assert.equal((await call('GET', '/' + code)).status, 200);
 });

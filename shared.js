@@ -47,7 +47,7 @@ var SharedBoard = (function () {
         running = true;
         try {
           var result = await request('GET', locator);
-          if (result.revision !== revision) receive(result.snapshot);
+          if (result.revision !== revision) receive(result.snapshot, result.code);
           revision = result.revision;
           initialized = true;
           status('Режим игрока · Результаты обновляются автоматически', true);
@@ -331,7 +331,10 @@ var SharedBoard = (function () {
     setInterval(refreshOwner, 8000);
     show('choose');
     tryResume();
-    return { changed: changed };
+    return {
+      changed: changed,
+      isSaved: function () { return Boolean(owner && !busy && !dirty && !pending && !closing); }
+    };
   }
 
   return { viewer: viewer, organizer: organizer };

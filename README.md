@@ -24,6 +24,9 @@ for offline use or for importing results from the older app.
   to see read-only, automatically updated results and the timer. Organizers
   enter the same code plus a separate key to resume editing from any browser.
   Tournaments remain available until the organizer removes them.
+- **Match report**: open the report from the standings to print or save to PDF.
+  It includes the standings and each scheduled match. It is marked as final
+  when every match has a result.
 
 ## Files
 `index.html` (page) · `styles.css` · `tournament.js` (schedule and timing) · `app.js` · `sw.js` (offline cache) ·

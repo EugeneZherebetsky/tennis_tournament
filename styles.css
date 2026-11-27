@@ -144,6 +144,24 @@ a:focus-visible,button:focus-visible,summary:focus-visible,select:focus-visible 
 #create-options { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
 #tournament-access button { min-height: 44px; }
 #viewer-banner p { margin: 0 0 2px; }
+.report-link { margin-bottom: 10px; }
+.report-link button,.report-actions button { min-height: 44px; }
+#report-notice:empty { display: none; }
+body.report-open main > :not(#results-report) { display: none !important; }
+#results-report { max-width: 920px; margin: 0 auto; padding: clamp(14px,4vw,32px); }
+.report-actions { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; margin-bottom: 16px; }
+.report-header { border-bottom: 2px solid var(--accent); margin-bottom: 20px; padding-bottom: 12px; }
+.report-sport { color: var(--accent); font-size: 13px; font-weight: 700; margin: 0; }
+.report-header p { margin: 5px 0; }
+.report-outcome { display: inline-block; padding: 4px 8px; border-radius: 5px; background: #e7f5ef; font-weight: 700; }
+.report-table-scroll { overflow-x: auto; margin-bottom: 20px; }
+.report-table th { background: #e2eeef; color: var(--ink); }
+.report-table th,.report-table td { padding: 7px 5px; }
+.report-standings { min-width: 480px; }
+.report-games { min-width: 600px; }
+.report-games :is(th,td):nth-child(2) { text-align: center; }
+.report-games :is(th,td):nth-child(n+3):not(:nth-child(5)) { text-align: left; overflow-wrap: anywhere; }
+.report-key { font-size: 12px; color: var(--muted); }
 .screen-reader { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 @media(max-width: 480px) {
   .match-toolbar .timerbar { gap: 4px 6px; }
@@ -162,4 +180,18 @@ a:focus-visible,button:focus-visible,summary:focus-visible,select:focus-visible 
   .player-standings:not(.show-details) :is(th,td):not(:nth-child(1),:nth-child(2),:nth-child(4)) { display: table-cell; }
   .player-standings:not(.show-details) .wins-short { display: inline; }
   .player-standings:not(.show-details) .wins-full { display: none; }
+  @page { size: A4 portrait; margin: 14mm; }
+  body.report-open { font-size: 10pt; line-height: 1.35; }
+  body.report-open #results-report { border: 0; max-width: none; margin: 0; padding: 0; break-inside: auto; }
+  .report-actions { display: none !important; }
+  .report-header { margin-bottom: 12pt; }
+  .report-header,.report-outcome,.report-table tr { break-inside: avoid; }
+  #results-report h2 { font-size: 14pt; margin-bottom: 6pt; break-after: avoid; }
+  .report-table-scroll { overflow: visible; margin-bottom: 12pt; }
+  .report-table { min-width: 0; width: 100%; table-layout: fixed; }
+  .report-table thead { display: table-header-group; }
+  .report-table :is(th,td) { font-size: 9pt; overflow-wrap: anywhere; }
+  .report-standings :is(th,td):nth-child(2) { width: 26%; }
+  .report-games :is(th,td):nth-child(-n+2) { width: 8%; }
+  .report-games :is(th,td):nth-child(5) { width: 9%; white-space: nowrap; }
 }

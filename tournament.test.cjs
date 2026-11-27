@@ -69,3 +69,21 @@ test('a new completed match needs a legal game score or an explicit time-limit f
   assert.equal(model.checkScore(['12', '9'], 11, false), 'time');
   assert.equal(model.checkScore(['21', '19'], 21, false), null);
 });
+
+test('the result report includes all tables in schedule order and labels timed and pending games', () => {
+  const rounds = [[[0, 1], [2, 3]], [[1, 2]]];
+  const entries = [
+    { ok: true, a: 11, b: 8, w: 0 },
+    { ok: true, a: 4, b: 6, w: 1 },
+    { ok: false, empty: true }
+  ];
+  const summary = model.reportMatches(rounds, entries, [['11', '8'], ['4', '6', true], ['', '']], ['А', 'Б', 'В', 'Г']);
+  assert.deepEqual(JSON.parse(JSON.stringify(summary)), {
+    played: 2,
+    rows: [
+      [1, 1, 'А', 'Б', '11:8', 'А', ''],
+      [1, 2, 'В', 'Г', '4:6', 'Г', 'По лимиту времени'],
+      [2, 1, 'Б', 'В', '—', '—', 'Ожидает результата']
+    ]
+  });
+});

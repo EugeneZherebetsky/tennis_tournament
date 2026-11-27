@@ -11,6 +11,7 @@
   var access = new URLSearchParams(location.search);
   var boardId = access.get('board'), joinCode = access.get('code');
   var readOnly = boardId !== null || joinCode !== null, sharing, mode = readOnly ? 'viewer' : 'choose';
+  var viewCode, reportState, reportReturn, reportScroll;
 
   function $(id) { return document.getElementById(id); }
 
@@ -107,7 +108,7 @@
   function update() {
     var N = data.players, M = PAIRS.length;
     var stat = [], results = [], done = 0, i, j, k, p, r, z, st, label, rank = 1, tie, d, values, tr,
-      body = $('ranking'), leaders = [];
+      body = $('ranking'), leaders = [], reportRanking = [];
     for (i = 0; i < N; i++) stat.push({ i: i, g: 0, w: 0, l: 0, f: 0, a: 0, h: 0 });
     ROUNDS.forEach(function (round, i) {
       var rest = $('rest' + i);
@@ -161,12 +162,15 @@
       if (done === M && rank === 1) tr.className = 'winner';
       d = z.f - z.a;
       values = [done === 0 ? '—' : rank + (tie ? '=' : ''), name(z.i), z.g, z.w, z.l, z.f, z.a, (d > 0 ? '+' : '') + d, z.w];
+      reportRanking.push(values.slice(0, 8));
       for (k = 0; k < values.length; k++) tr.appendChild(make('td', values[k]));
       body.appendChild(tr);
       if (cmp(stat[0], z) === 0) leaders.push(name(z.i));
     }
     $('progress').textContent = 'Сыграно ' + done + ' из ' + M + ' матчей. ' + (done === M ? 'Турнир завершён.' : 'Рейтинг предварительный.');
     $('result').textContent = done === M ? (leaders.length === 1 ? '🏆 Победитель: ' + leaders[0] : 'Первое место делят: ' + leaders.join(', ')) : '';
+    reportState = { ranking: reportRanking, results: results };
+    $('report-open').textContent = done === M ? 'Итоговый протокол / PDF' : 'Протокол матчей / PDF';
     updatePlayerOptions();
     renderPlayer();
   }
@@ -329,7 +333,9 @@
       (T.running && ph.kind === 'play' && rem <= 60000 ? ' last' : '') + (finished() ? ' done' : '');
     btn.textContent = T.running ? 'Пауза' : finished() ? 'Завершено' : started() ? 'Продолжить' : 'Старт';
     btn.disabled = finished();
-    document.title = (T.running ? clock(rem) + ' · ' : '') + 'Мини-турнир по настольному теннису';
+    if (!document.body.classList.contains('report-open')) {
+      document.title = (T.running ? clock(rem) + ' · ' : '') + 'Мини-турнир по настольному теннису';
+    }
     cur = started() ? ph.r : -1;
     if (cur !== lastRound) {
       if (lastRound >= 0) {
@@ -694,7 +700,8 @@
     document.querySelector('header .metrics').hidden = !available;
   }
 
-  function receiveSharedBoard(snapshot) {
+  function receiveSharedBoard(snapshot, code) {
+    if (code) viewCode = code;
     var next = sanitize(snapshot.data);
     var rebuild = next.players !== data.players || next.tables !== data.tables || !$('match0');
     var settingsChanged = rebuild || data.target !== next.target || data.minutes !== next.minutes;
@@ -743,6 +750,45 @@
     } };
   }
 
+  function reportRows(body, rows) {
+    var content = document.createDocumentFragment();
+    rows.forEach(function (values) {
+      var row = document.createElement('tr');
+      values.forEach(function (value) { row.appendChild(make('td', value)); });
+      content.appendChild(row);
+    });
+    body.replaceChildren(content);
+  }
+
+  function openReport(event) {
+    if (mode === 'owner' && !sharing.isSaved()) {
+      $('report-notice').textContent = 'Дождитесь сохранения результатов на сервере и откройте протокол снова.';
+      return;
+    }
+    $('report-notice').textContent = '';
+    var matches = Tournament.reportMatches(ROUNDS, reportState.results, data.scores, data.names.map(function (_, i) { return name(i); }));
+    var complete = matches.played === PAIRS.length;
+    var code = mode === 'owner' ? $('session-code').textContent : (viewCode || joinCode || '');
+    var stamp = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'long', timeStyle: 'short' }).format(new Date());
+    var label = complete ? 'Итоговый протокол' : 'Промежуточный протокол';
+    $('report-title').textContent = label;
+    $('report-meta').textContent = (code ? 'Код: ' + code.replace(/-/g, '').match(/.{1,4}/g).join('-') + ' · ' : '') +
+      (mode === 'local' ? 'Локальный турнир · ' : '') + 'Сформирован: ' + stamp;
+    $('report-summary').textContent = 'Игроков: ' + data.players + ' · Столов: ' + data.tables +
+      ' · Игра до ' + data.target + ' ' + fmt().word + ' · Сыграно ' + matches.played + ' из ' + PAIRS.length;
+    $('report-outcome').textContent = $('result').textContent.replace(/^🏆\s*/u, '');
+    $('report-outcome').hidden = !complete;
+    reportRows($('report-ranking'), reportState.ranking);
+    reportRows($('report-matches'), matches.rows);
+    reportReturn = event.currentTarget;
+    reportScroll = window.scrollY;
+    $('results-report').hidden = false;
+    document.body.classList.add('report-open');
+    document.title = label + (code ? ' — ' + code : '') + ' — Настольный теннис';
+    $('report-title').focus();
+    window.scrollTo(0, 0);
+  }
+
   renderSchedule();
   $('my-player').addEventListener('change', function (event) {
     selectedPlayer = event.target.value === '' ? null : Number(event.target.value);
@@ -760,6 +806,16 @@
   $('standings-detail').hidden = false;
   $('standings-key').hidden = true;
   $('standings').classList.add('player-standings');
+  $('report-open').hidden = false;
+  $('report-open').addEventListener('click', openReport);
+  $('report-print').addEventListener('click', function () { window.print(); });
+  $('report-close').addEventListener('click', function () {
+    $('results-report').hidden = true;
+    document.body.classList.remove('report-open');
+    renderTimer();
+    reportReturn.focus({ preventScroll: true });
+    window.scrollTo(0, reportScroll);
+  });
   $('timer').hidden = false;
   if (readOnly) {
     $('tstart').hidden = true;
@@ -772,7 +828,7 @@
     bindSetup();
     bindFormat();
     bindScoreDialog();
-    $('print').addEventListener('click', function () { window.print(); });
+    $('print').addEventListener('click', openReport);
     $('reset').addEventListener('click', function () {
       if (window.confirm('Удалить все результаты? Имена участников сохранятся.')) {
         data.scores = blankScores(PAIRS.length);

@@ -98,5 +98,23 @@ var Tournament = (function () {
     return null;
   }
 
-  return { schedule: schedule, timing: timing, minimumMinutes: minimumMinutes, matchesFor: matchesFor, checkScore: checkScore };
+  function reportMatches(rounds, results, scores, names) {
+    var index = 0, played = 0, rows = [];
+    rounds.forEach(function (pairs, round) {
+      pairs.forEach(function (pair, table) {
+        var result = results[index], score = scores[index++];
+        if (result.ok) played++;
+        var note = !result.ok ? (result.empty ? 'Ожидает результата' : result.msg)
+          : score[2] === true ? 'По лимиту времени' : result.note || '';
+        rows.push([round + 1, table + 1, names[pair[0]], names[pair[1]],
+          result.ok ? result.a + ':' + result.b : '—', result.ok ? names[pair[result.w]] : '—', note]);
+      });
+    });
+    return { played: played, rows: rows };
+  }
+
+  return {
+    schedule: schedule, timing: timing, minimumMinutes: minimumMinutes, matchesFor: matchesFor,
+    checkScore: checkScore, reportMatches: reportMatches
+  };
 })();

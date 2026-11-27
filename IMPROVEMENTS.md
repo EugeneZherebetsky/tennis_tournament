@@ -8,6 +8,9 @@
 - Mobile layout is fine at 375 px (no horizontal scroll); print/PDF styles.
 - Clear rules incl. a sensible time-limit rule for an 8-minute slot.
 
+## Status
+Done: bugs 1–7, round timer, offline/PWA, 11/21-point format.
+
 ## Bugs / weak spots (verified in a headless browser)
 | # | Issue | Fix |
 |---|-------|-----|

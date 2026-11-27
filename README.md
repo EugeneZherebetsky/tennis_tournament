@@ -1,9 +1,25 @@
 # Table tennis mini-tournament
 
-A single-page, dependency-free tool for running a 5-player, 2-table round-robin
-table tennis tournament in 60 minutes (UI in Russian). Open `index.html` in any
-browser: enter names, type scores, and the standings update automatically.
-Data is saved in the browser's `localStorage`.
+A dependency-free web app for running a 5-player, 2-table round-robin table
+tennis tournament (UI in Russian). Enter names and scores; standings update
+automatically. Everything is saved in the browser's `localStorage`.
+
+- **Match to 11 or 21 points**: 11 = 8-min matches, 60-min event;
+  21 = 12-min matches, 80-min event. Rules text, schedule and timer adapt.
+- **Round timer**: sticky panel, warm-up → 5 × (play + changeover) → results;
+  beep and vibration 1 min before the end and at each phase change; keeps the
+  screen on (Wake Lock); survives page reloads.
+- **Works offline** once opened (service worker) and can be added to the home
+  screen (installable web app).
+- Ranking: wins → head-to-head among tied players → point difference → points scored.
+
+## Files
+`index.html` (page) · `styles.css` · `app.js` · `sw.js` (offline cache) ·
+`manifest.webmanifest` + icons.
+
+**When you change any file, bump `VERSION` in `sw.js`**, otherwise visitors
+keep getting the cached copy. Offline mode only works over http(s), not when
+opening the file from disk.
 
 ## Hosting on a subdomain (GitHub Pages)
 

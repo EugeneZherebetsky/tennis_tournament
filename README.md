@@ -1,12 +1,17 @@
 # Table tennis mini-tournament
 
-A dependency-free web app for running a 5-player, 2-table round-robin table
+A dependency-free web app for running a round-robin table
 tennis tournament (UI in Russian). Enter names and scores; standings update
 automatically. Everything is saved in the browser's `localStorage`.
 
-- **Match to 11 or 21 points**: 11 = 8-min matches, 60-min event;
-  21 = 12-min matches, 80-min event. Rules text, schedule and timer adapt.
-- **Round timer**: sticky panel, warm-up → 5 × (play + changeover) → results;
+- **Tournament setup**: 2–24 players and 1–12 tables. The schedule assigns each
+  pair one match and keeps rounds within the table limit.
+- **Duration**: enter a total in minutes or leave it blank for automatic timing.
+  The automatic match limit is 8 minutes for 11-point games and 12 minutes for
+  21-point games. Both modes include a 5-minute warm-up, 2 minutes after play in
+  each round, and 5 minutes for results. Custom totals allow at least one minute
+  of play per round.
+- **Round timer**: sticky panel, warm-up → rounds (play + changeover) → results;
   beep and vibration 1 min before the end and at each phase change; keeps the
   screen on (Wake Lock); survives page reloads.
 - **Works offline** once opened (service worker) and can be added to the home
@@ -14,7 +19,7 @@ automatically. Everything is saved in the browser's `localStorage`.
 - Ranking: wins → head-to-head among tied players → point difference → points scored.
 
 ## Files
-`index.html` (page) · `styles.css` · `app.js` · `sw.js` (offline cache) ·
+`index.html` (page) · `styles.css` · `tournament.js` (schedule and timing) · `app.js` · `sw.js` (offline cache) ·
 `manifest.webmanifest` + icons.
 
 **When you change any file, bump `VERSION` in `sw.js`**, otherwise visitors

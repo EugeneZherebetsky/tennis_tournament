@@ -13,3 +13,8 @@
 .timerbar.last .tclock{color:#ffb4a8}.timerbar.done .tclock{opacity:.6}
 @media(max-width:480px){.timerbar{top:4px;padding:10px 12px}}
 @media print{.timerbar,.format{display:none!important}.round.current{box-shadow:none}.round.current .roundhead b::after{content:none}}
+
+.setup-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px}
+.setup-fields input{display:block;margin-top:4px;font-size:16px}
+.matches{grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))}
+@media print{#setup-section{display:none!important}}

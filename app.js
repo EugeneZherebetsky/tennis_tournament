@@ -1,21 +1,13 @@
 (function () {
   'use strict';
 
-  // ---------- Tournament structure ----------
-  // Each round: [table1 A, table1 B, table2 A, table2 B, resting player]
-  var ROUNDS = [[0, 1, 2, 3, 4], [0, 2, 1, 4, 3], [0, 3, 2, 4, 1], [0, 4, 1, 3, 2], [1, 2, 3, 4, 0]];
-  var PAIRS = [];
-  ROUNDS.forEach(function (r) { PAIRS.push([r[0], r[1]], [r[2], r[3]]); });
-  var N = 5, M = PAIRS.length;
-
   // Match formats. `play` is the time limit per match in minutes.
   var FORMATS = {
     11: { target: 11, play: 8, serve: 'двух', deuce: '10:10', ex: '11:9 или 13:11', exScore: '11 и 8', word: 'очков' },
     21: { target: 21, play: 12, serve: 'пяти', deuce: '20:20', ex: '21:18 или 23:21', exScore: '21 и 17', word: 'очка' }
   };
-  var WARM = 5, CHANGE = 2, FINAL = 5;
-
-  var KEY = 'tt-tournament-5-v2', OLD_KEY = 'tt-tournament-5-v1', TKEY = 'tt-timer-v1';
+  var KEY = 'tt-tournament-v3', TKEY = 'tt-timer-v2';
+  var MIN_PLAYERS = 2, MAX_PLAYERS = 24, MAX_TABLES = 12, MAX_MINUTES = 10080;
 
   function $(id) { return document.getElementById(id); }
 
@@ -28,23 +20,33 @@
     try { window.localStorage.setItem(k, JSON.stringify(v)); } catch (e) { storageOK = false; }
   }
 
-  function defaults() {
-    var n = [], s = [], i;
-    for (i = 0; i < N; i++) n.push('П' + (i + 1));
-    for (i = 0; i < M; i++) s.push(['', '']);
-    return { names: n, scores: s, target: 11 };
+  function inRange(value, min, max) {
+    return Number.isInteger(value) && value >= min && value <= max;
+  }
+  function blankScores(count) {
+    return Array.from({ length: count }, function () { return ['', '']; });
   }
   function isScalar(v) { return typeof v === 'string' || typeof v === 'number'; }
 
   // Coerce whatever is in storage into a well-formed state; drop anything odd.
   function sanitize(raw) {
-    var d = defaults(), i, j, k, v;
-    if (!raw || typeof raw !== 'object') return d;
+    raw = raw || {};
+    var players = inRange(raw.players, MIN_PLAYERS, MAX_PLAYERS) ? raw.players : 5;
+    var tables = inRange(raw.tables, 1, MAX_TABLES) ? raw.tables : 2;
+    var target = raw.target === 21 || raw.target === '21' ? 21 : 11;
+    var min = Tournament.minimumMinutes(Tournament.schedule(players, tables).length);
+    var d = {
+      players: players, tables: tables, target: target,
+      minutes: inRange(raw.minutes, min, MAX_MINUTES) ? raw.minutes : null,
+      names: Array.from({ length: players }, function (_, i) { return 'П' + (i + 1); }),
+      scores: blankScores(players * (players - 1) / 2)
+    };
+    var i, j, k, v;
     if (Array.isArray(raw.names)) {
-      for (i = 0; i < N; i++) if (isScalar(raw.names[i])) d.names[i] = String(raw.names[i]).slice(0, 40);
+      for (i = 0; i < d.names.length; i++) if (isScalar(raw.names[i])) d.names[i] = String(raw.names[i]).slice(0, 40);
     }
     if (Array.isArray(raw.scores)) {
-      for (j = 0; j < M; j++) {
+      for (j = 0; j < d.scores.length; j++) {
         if (!Array.isArray(raw.scores[j])) continue;
         for (k = 0; k < 2; k++) {
           v = raw.scores[j][k];
@@ -52,11 +54,14 @@
         }
       }
     }
-    if (raw.target === 21 || raw.target === '21') d.target = 21;
     return d;
   }
 
-  var data = sanitize(load(KEY) || load(OLD_KEY));
+  var saved = load(KEY);
+  var data = sanitize(saved || load('tt-tournament-5-v2') || load('tt-tournament-5-v1'));
+  var ROUNDS = Tournament.schedule(data.players, data.tables);
+  var PAIRS = ROUNDS.flat();
+  var PLAN = Tournament.timing(ROUNDS.length, fmt().play, data.minutes);
   function save() { store(KEY, data); info(); }
   function fmt() { return FORMATS[data.target] || FORMATS[11]; }
   function name(i) { return String(data.names[i] || '').trim() || 'П' + (i + 1); }
@@ -88,10 +93,18 @@
   function make(tag, txt) { var e = document.createElement(tag); e.textContent = txt; return e; }
 
   function update() {
+    var N = data.players, M = PAIRS.length;
     var stat = [], results = [], done = 0, i, j, k, p, r, z, st, label, rank = 1, tie, d, values, tr,
       body = $('ranking'), leaders = [];
     for (i = 0; i < N; i++) stat.push({ i: i, g: 0, w: 0, l: 0, f: 0, a: 0, h: 0 });
-    for (i = 0; i < ROUNDS.length; i++) $('rest' + i).textContent = 'Отдых: ' + name(ROUNDS[i][4]);
+    ROUNDS.forEach(function (round, i) {
+      var rest = $('rest' + i);
+      if (rest.hidden) return;
+      var playing = new Set(round.flat());
+      rest.textContent = 'Отдых: ' + data.names.map(function (_, player) {
+        return playing.has(player) ? null : name(player);
+      }).filter(Boolean).join(', ');
+    });
 
     for (j = 0; j < M; j++) {
       p = PAIRS[j]; r = assess(data.scores[j]); results.push(r);
@@ -151,45 +164,60 @@
   }
 
   function applyFormat() {
-    var f = fmt(), L = f.play + CHANGE, mainEnd = WARM + ROUNDS.length * L, total = mainEnd + FINAL, r;
+    var f = fmt(), end = PLAN.warm, total = PLAN.total / 60, r;
+    var play = durationLabel(PLAN.games[PLAN.games.length - 1]);
+    if (PLAN.games[0] !== PLAN.games[PLAN.games.length - 1]) play += '–' + durationLabel(PLAN.games[0]);
     var radios = document.querySelectorAll('input[name="target"]');
     for (r = 0; r < radios.length; r++) radios[r].checked = Number(radios[r].value) === f.target;
     $('mtotal').textContent = total;
-    setLines($('tlmain'), WARM + '–' + mainEnd + ' мин', ROUNDS.length + ' раундов по ' + L + ' минут');
-    setLines($('tlend'), mainEnd + '–' + total, 'Итоги');
+    $('mplayers').textContent = data.players;
+    $('mtables').textContent = data.tables;
+    $('matchsummary').textContent = 'Матчей: ' + PAIRS.length + ' · Раундов: ' + ROUNDS.length + ' · Матчей на игрока: ' + (data.players - 1);
     for (r = 0; r < ROUNDS.length; r++) {
-      $('rtime' + r).textContent = 'Раунд ' + (r + 1) + ' · ' + (WARM + r * L) + '–' + (WARM + (r + 1) * L) + ' мин';
+      var start = end;
+      end += PLAN.games[r] + PLAN.change;
+      $('rtime' + r).textContent = 'Раунд ' + (r + 1) + ' · ' + durationLabel(start) + '–' + durationLabel(end) + ' мин';
     }
-    $('schedinfo').textContent = 'Время отсчитывается от начала турнира. В каждом раунде — ' + f.play +
-      ' минут игры и ' + CHANGE + ' минуты на смену участников.';
+    setLines($('tlmain'), durationLabel(PLAN.warm) + '–' + durationLabel(end) + ' мин', 'Раундов: ' + ROUNDS.length);
+    setLines($('tlend'), durationLabel(end) + '–' + total + ' мин', 'Итоги');
+    $('schedinfo').textContent = 'Время от начала турнира. Игра: ' + play + ' мин на раунд. Смена игроков и запись счёта: 2 мин.';
     $('scoreinfo').textContent = 'Имена участников берутся из списка выше. В поля рядом с именами внесите итоговые очки (например, ' + f.exScore + ').';
     $('rule2').textContent = 'Матч состоит из одной партии до ' + f.target + ' ' + f.word +
       '. Для обычной победы нужен перевес минимум в два очка (например, ' + f.ex + ').';
     $('rule3').textContent = 'Первую подачу определите жребием. Подача переходит после каждых ' + f.serve +
       ' розыгрышей, при ' + f.deuce + ' — после каждого. При подаче мяч подбрасывают с открытой ладони, и он должен отскочить сначала на своей, затем на чужой половине стола.';
-    $('rule4').textContent = 'Лимит — ' + f.play + ' минут на матч. По сигналу таймера завершите текущий розыгрыш. ' +
+    $('rule4').textContent = 'Лимит — ' + play + ' мин на матч. По сигналу таймера завершите текущий розыгрыш. ' +
       'Если партия не закончена, выигрывает тот, кто ведёт в счёте. При равенстве разыгрывается одно решающее очко по очереди подачи. ' +
       'Затем внесите итоговый счёт. Это специальное правило мини-турнира, а не стандартное правило настольного тенниса.';
-    $('fmthint').textContent = 'До ' + f.target + ': ' + f.play + ' мин на матч, весь турнир — ' + total + ' мин.';
+    $('fmthint').textContent = 'Игра: ' + play + ' мин на матч. Турнир: ' + total + ' мин.';
   }
 
   // ---------- Timer ----------
+  function durationLabel(seconds) {
+    return Math.floor(seconds / 60) + (seconds % 60 ? ':' + two(seconds % 60) : '');
+  }
   function phases() {
-    var f = fmt(), p = [{ r: -1, kind: 'warm', label: 'Разминка', min: WARM }], r;
+    var p = [{ r: -1, kind: 'warm', label: 'Разминка', seconds: PLAN.warm }], r;
     for (r = 0; r < ROUNDS.length; r++) {
-      p.push({ r: r, kind: 'play', label: 'Раунд ' + (r + 1) + ' · игра', min: f.play });
-      p.push({ r: r, kind: 'change', label: 'Раунд ' + (r + 1) + ' · ' + (r < ROUNDS.length - 1 ? 'смена и запись' : 'запись результатов'), min: CHANGE });
+      p.push({ r: r, kind: 'play', label: 'Раунд ' + (r + 1) + ' · игра', seconds: PLAN.games[r] });
+      p.push({ r: r, kind: 'change', label: 'Раунд ' + (r + 1) + ' · ' + (r < ROUNDS.length - 1 ? 'смена и запись' : 'запись результатов'), seconds: PLAN.change });
     }
-    p.push({ r: -1, kind: 'final', label: 'Итоги', min: FINAL });
+    p.push({ r: -1, kind: 'final', label: 'Итоги', seconds: PLAN.final });
     return p;
   }
   var P = phases();
-  function dur(i) { return P[i].min * 60000; }
-  function freshTimer() { return { i: 0, running: false, end: 0, left: dur(0), warned: -1, target: data.target }; }
+  function dur(i) { return P[i].seconds * 1000; }
+  function freshTimer() {
+    return { i: 0, running: false, end: 0, left: dur(0), warned: -1, plan: [data.players, data.tables, PLAN.total].join('/') };
+  }
 
   function loadTimer() {
     var t = load(TKEY), f = freshTimer();
-    if (!t || typeof t !== 'object' || t.target !== data.target) return f;
+    if (!t && !saved) {
+      var legacy = load('tt-timer-v1');
+      if (legacy && legacy.target === data.target) t = Object.assign({ plan: f.plan }, legacy);
+    }
+    if (!t || t.plan !== f.plan) return f;
     var i = Number(t.i);
     if (!(i >= 0 && i < P.length && Math.floor(i) === i)) return f;
     f.i = i;
@@ -261,11 +289,12 @@
   function two(n) { return (n < 10 ? '0' : '') + n; }
   function clock(ms) { var s = Math.ceil(ms / 1000); return two(Math.floor(s / 60)) + ':' + two(s % 60); }
 
-  var lastRound = null;
+  var lastRound = -1;
   function renderTimer(scroll) {
-    var ph = P[T.i], rem = remaining(), bar = $('timer'), btn = $('tstart'), r, cur;
+    var ph = P[T.i], rem = remaining(), bar = $('timer'), btn = $('tstart'), cur;
+    var next = P[T.i + 1];
     $('tphase').textContent = ph.label;
-    $('tnext').textContent = T.i < P.length - 1 ? 'Далее: ' + P[T.i + 1].label + ' (' + P[T.i + 1].min + ' мин)' : 'Последний этап';
+    $('tnext').textContent = next ? 'Далее: ' + next.label + ' (' + durationLabel(next.seconds) + ' мин)' : 'Последний этап';
     $('tclock').textContent = clock(rem);
     $('tprog').style.width = (100 * (1 - rem / dur(T.i))).toFixed(2) + '%';
     bar.className = 'timerbar' + (ph.kind === 'change' ? ' change' : '') +
@@ -274,7 +303,10 @@
     btn.disabled = finished();
     document.title = (T.running ? clock(rem) + ' · ' : '') + 'Мини-турнир по настольному теннису';
     cur = started() ? ph.r : -1;
-    for (r = 0; r < ROUNDS.length; r++) $('round' + r).classList.toggle('current', r === cur);
+    if (cur !== lastRound) {
+      if (lastRound >= 0) $('round' + lastRound).classList.remove('current');
+      if (cur >= 0) $('round' + cur).classList.add('current');
+    }
     if (scroll && cur >= 0 && cur !== lastRound && ph.kind === 'play') {
       var a = document.activeElement;
       if (!a || a.tagName !== 'INPUT') $('round' + cur).scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -338,7 +370,7 @@
   // ---------- Status line & offline ----------
   var offlineReady = false;
   function info() {
-    var t = storageOK ? 'Автоподсчёт работает. Имена, результаты и таймер сохраняются в этом браузере.'
+    var t = storageOK ? 'Настройки, имена, результаты и таймер сохраняются в этом браузере.'
       : 'Автоподсчёт работает, но локальное сохранение недоступно. Не закрывайте страницу до окончания турнира.';
     if (offlineReady) t += ' Страница доступна без интернета.';
     if (navigator.onLine === false) t += ' Сейчас нет сети — работа офлайн.';
@@ -352,6 +384,114 @@
   }
 
   // ---------- Wiring ----------
+  // Reuse the static controls that also make up the no-JavaScript fallback.
+  var nameTemplate = $('name0').parentElement.cloneNode(true);
+  var roundTemplate = $('round0').cloneNode(false);
+  var headTemplate = $('rtime0').parentElement.cloneNode(true);
+  var matchTemplate = document.querySelector('.match').cloneNode(true);
+
+  function renderSchedule() {
+    $('names').textContent = '';
+    data.names.forEach(function (_, i) {
+      var label = nameTemplate.cloneNode(true), input = label.querySelector('input');
+      label.firstChild.nodeValue = 'Игрок ' + (i + 1);
+      label.htmlFor = input.id = 'name' + i;
+      $('names').appendChild(label);
+      bindName(i);
+    });
+    var rounds = document.createDocumentFragment(), matchIndex = 0;
+    ROUNDS.forEach(function (pairs, r) {
+      var round = roundTemplate.cloneNode(false), head = headTemplate.cloneNode(true);
+      var matches = document.createElement('div');
+      round.id = 'round' + r;
+      head.querySelector('b').id = 'rtime' + r;
+      var rest = head.querySelector('.rest');
+      rest.id = 'rest' + r;
+      rest.hidden = pairs.length * 2 === data.players;
+      matches.className = 'matches';
+      pairs.forEach(function (_, table) {
+        var match = matchTemplate.cloneNode(true);
+        var j = matchIndex++;
+        match.querySelector('.tabletag').textContent = 'Стол ' + (table + 1);
+        match.querySelector('.state').id = 'state' + j;
+        match.querySelectorAll('.matchrow').forEach(function (row, k) {
+          var label = row.querySelector('label'), input = row.querySelector('input');
+          label.id = 'p' + j + '-' + k;
+          label.htmlFor = input.id = 's' + j + '-' + k;
+        });
+        matches.appendChild(match);
+      });
+      round.append(head, matches);
+      rounds.appendChild(round);
+    });
+    $('rounds').replaceChildren(rounds);
+    PAIRS.forEach(function (_, j) { bindScore(j, 0); bindScore(j, 1); });
+    lastRound = -1;
+  }
+
+  function previewSetup() {
+    var players = $('player-count').valueAsNumber, tables = $('table-count').valueAsNumber;
+    if (!inRange(players, MIN_PLAYERS, MAX_PLAYERS) || !inRange(tables, 1, MAX_TABLES)) {
+      $('setup-hint').textContent = 'Введите от 2 до 24 игроков и от 1 до 12 столов.';
+      return null;
+    }
+    var rounds = Tournament.schedule(players, tables);
+    var duration = $('tournament-minutes'), min = Tournament.minimumMinutes(rounds.length);
+    var minutes = duration.value === '' && !duration.validity.badInput ? null : duration.valueAsNumber;
+    duration.min = min;
+    var automatic = Tournament.timing(rounds.length, fmt().play, null).total / 60;
+    duration.placeholder = automatic + ' (авто)';
+    $('setup-hint').textContent = 'Раундов: ' + rounds.length + ' · Минимум: ' + min + ' мин · Авто: ' + automatic + ' мин';
+    return { rounds: rounds, players: players, tables: tables, minutes: minutes };
+  }
+
+  function bindSetup() {
+    var form = $('setup');
+    $('player-count').value = data.players;
+    $('table-count').value = data.tables;
+    $('tournament-minutes').value = data.minutes === null ? '' : data.minutes;
+    form.addEventListener('input', function () { $('setup-status').textContent = ''; previewSetup(); });
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      var setup = previewSetup();
+      if (!setup || !form.reportValidity()) return;
+      var plan = Tournament.timing(setup.rounds.length, fmt().play, setup.minutes);
+      var structureChanged = setup.players !== data.players || setup.tables !== data.tables;
+      var resetTimer = structureChanged || plan.total !== PLAN.total;
+      var removedResults = PAIRS.some(function (pair, j) {
+        return pair[1] >= setup.players && data.scores[j].some(Boolean);
+      });
+      var warnings = [];
+      if (removedResults) warnings.push('Счёт матчей удалённых игроков будет удалён.');
+      if (resetTimer && started()) warnings.push('Таймер вернётся к началу турнира.');
+      if (warnings.length && !window.confirm(warnings.join(' ') + ' Применить настройки?')) return;
+
+      if (structureChanged) {
+        var previousScores = new Map(PAIRS.map(function (pair, j) { return [pair.join('-'), data.scores[j]]; }));
+        ROUNDS = setup.rounds;
+        PAIRS = ROUNDS.flat();
+        data.names = Array.from({ length: setup.players }, function (_, i) {
+          return i < data.names.length ? data.names[i] : 'П' + (i + 1);
+        });
+        data.scores = PAIRS.map(function (pair) { return previousScores.get(pair.join('-')) || ['', '']; });
+        data.players = setup.players;
+        data.tables = setup.tables;
+        renderSchedule();
+      }
+      data.minutes = setup.minutes;
+      PLAN = plan;
+      if (resetTimer) { P = phases(); T = freshTimer(); syncLock(); }
+      applyFormat();
+      update();
+      save();
+      saveTimer();
+      renderTimer();
+      $('setup-status').textContent = 'Настройки применены.';
+    });
+    previewSetup();
+    $('setup-section').hidden = false;
+  }
+
   function bindName(i) {
     var e = $('name' + i);
     e.value = data.names[i];
@@ -367,22 +507,27 @@
     function change(e) {
       var v = Number(e.target.value);
       if (v === data.target) return;
-      if (started() && !window.confirm('Длительность матчей изменится, таймер будет сброшен. Продолжить?')) { applyFormat(); return; }
-      data.target = v; P = phases(); T = freshTimer(); saveTimer(); syncLock();
-      applyFormat(); update(); save(); renderTimer();
+      if (data.minutes === null && started() && !window.confirm('Длительность матчей изменится, таймер будет сброшен. Продолжить?')) { applyFormat(); return; }
+      data.target = v;
+      if (data.minutes === null) {
+        PLAN = Tournament.timing(ROUNDS.length, fmt().play, null);
+        P = phases();
+        T = freshTimer();
+        syncLock();
+      }
+      applyFormat(); previewSetup(); update(); save(); saveTimer(); renderTimer();
     }
     for (r = 0; r < radios.length; r++) radios[r].addEventListener('change', change);
   }
 
-  var i, j, k;
-  for (i = 0; i < N; i++) bindName(i);
-  for (j = 0; j < M; j++) for (k = 0; k < 2; k++) bindScore(j, k);
+  renderSchedule();
+  bindSetup();
   bindFormat();
   $('print').addEventListener('click', function () { window.print(); });
   $('reset').addEventListener('click', function () {
     if (window.confirm('Удалить все результаты? Имена участников сохранятся.')) {
-      data.scores = defaults().scores;
-      for (var j = 0; j < M; j++) for (var k = 0; k < 2; k++) $('s' + j + '-' + k).value = '';
+      data.scores = blankScores(PAIRS.length);
+      for (var j = 0; j < PAIRS.length; j++) for (var k = 0; k < 2; k++) $('s' + j + '-' + k).value = '';
       update(); save();
     }
   });
@@ -396,6 +541,7 @@
   $('format').hidden = false;
   $('timer').hidden = false;
   bindTimer();
+  saveTimer();
   tick();
   syncLock();
   if (document.readyState === 'complete') registerSW(); else window.addEventListener('load', registerSW);

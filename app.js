@@ -927,6 +927,18 @@
     if (!readOnly) syncLock();
   }
 
+  // Anything that differs from a fresh draft is worth offering to import:
+  // setup, names, title, scores, or a started timer.
+  function draftHasContent() {
+    var draft = localDraft && localDraft.data, fresh = sanitize(null), timer = localDraft && localDraft.timer;
+    if (!draft) return false;
+    return draft.players !== fresh.players || draft.tables !== fresh.tables || draft.target !== fresh.target ||
+      draft.minutes !== fresh.minutes || Boolean(draft.title) ||
+      draft.scores.some(function (score) { return score[0] !== '' || score[1] !== ''; }) ||
+      draft.names.some(function (playerName, i) { return playerName !== 'П' + (i + 1); }) ||
+      Boolean(timer && (timer.running || timer.i > 0 || timer.left < PLAN.warm * 1000));
+  }
+
   function organizerMode(next) {
     mode = next;
     showTournament(mode !== 'choose');
@@ -943,11 +955,8 @@
       $('tskip').hidden = false;
     }
     if (mode === 'choose') {
-      var draft = localDraft && localDraft.data;
-      var hasDraft = Boolean(draft && (draft.title || draft.scores.some(function (score) { return score[0] !== '' || score[1] !== ''; }) ||
-        draft.names.some(function (playerName, i) { return playerName !== 'П' + (i + 1); })));
-      $('import-draft-label').hidden = !hasDraft;
-      if (!hasDraft) $('import-draft').checked = false;
+      $('import-draft-label').hidden = !draftHasContent();
+      if ($('import-draft-label').hidden) $('import-draft').checked = false;
     } else {
       view = null;
       viewChosen = false;

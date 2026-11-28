@@ -455,6 +455,7 @@ var SharedBoard = (function () {
         owner = null;
         $('organizer-key').value = '';
       }
+      showKeyCard();
       show('choose');
       accessStatus.textContent = '';
     });

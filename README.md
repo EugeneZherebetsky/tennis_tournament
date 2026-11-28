@@ -23,7 +23,10 @@ for offline use or for importing results from the older app.
 - **Tournament codes**: players enter the 12-character code or open its link
   to see read-only, automatically updated results and the timer. Organizers
   enter the same code plus a separate key to resume editing from any browser.
-  Tournaments remain available until the organizer removes them.
+  After creating a tournament, a card asks the organizer to copy or share the key.
+  Unfinished tournaments are removed 180 days after their last change; finished
+  tournaments are kept until the organizer removes them. Each client (hashed IP
+  address) can create 10 tournaments per hour.
 - **Match report**: open the report from the standings to print or save to PDF.
   CSV export includes the standings and all match scores. Finish a completed
   tournament to archive and lock the final report. Reopening for corrections
@@ -31,6 +34,10 @@ for offline use or for importing results from the older app.
 - **Score sync**: each organizer result is saved to a local queue before the
   server receives it. Pending scores survive reloads. A conflicting edit is
   marked for review. The server remains authoritative for standings.
+- **Layout**: three tabs at the bottom of the screen: Game (timer, my matches,
+  schedule), Standings (table, reports, rules) and Settings (organizer only:
+  setup, players, sharing). Tap a match card to enter its score; the dialog has
+  one-tap winner buttons. Dark mode follows the device setting.
 - **Event access**: organize named tournaments, show a player QR code, and
   rotate the organizer key. Recent tournaments and the language preference
   are remembered in the current browser. The EN/RU switch preserves the
@@ -50,11 +57,16 @@ Cloudflare Pages deploys `main` to `tennis.ezherebetskii.com`. The project
 uses the repository root as its output directory and runs `exit 0` for its build.
 Deployments with sharing need the `TENNIS_DB` D1 binding to the database created
 with `database/boards.sql`, followed once by `database/tournament-codes.sql`
-and then `database/tournament-lifecycle.sql`.
+then `database/tournament-lifecycle.sql`, and then `database/creation-limits.sql`.
+**Run each new migration before the code that needs it is deployed**, for example
+`wrangler d1 execute <database-name> --remote --file=database/creation-limits.sql`.
 The `/api/boards` endpoint reports whether the database is available. Static
 hosting, including GitHub Pages, supports an explicitly selected local draft.
 
-Run the scheduling, scoring, and scoreboard API checks with Node 22+
-using `node --test tournament.test.cjs boards.test.mjs`.
+Run the scheduling, scoring, and scoreboard API checks with Node 22.5+
+using `npm test`. GitHub Actions runs them on every pull request and push to
+`main`, and fails a pull request that changes an offline-cached file without
+bumping `VERSION` in `sw.js`. Merge changes through pull requests so these checks
+run before Cloudflare deploys `main`.
 
 See [IMPROVEMENTS.md](IMPROVEMENTS.md) for the analysis and roadmap.

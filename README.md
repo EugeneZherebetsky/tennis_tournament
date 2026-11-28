@@ -1,7 +1,7 @@
 # Table tennis mini-tournament
 
 A dependency-free web app for running a round-robin table
-tennis tournament (UI in Russian). Confirm match results to update the rankings.
+tennis tournament in English or Russian. Confirm match results to update the rankings.
 Official tournaments are stored in Cloudflare D1. A local draft remains available
 for offline use or for importing results from the older app.
 

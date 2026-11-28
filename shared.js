@@ -138,6 +138,14 @@ var SharedBoard = (function () {
       if (mode === 'choose') renderRecent();
     }
 
+    function keySaved() { return owner && options.load('tt-key-saved:' + owner.id) === owner.key.slice(0, 8); }
+    function showKeyCard() {
+      $('key-card').hidden = !owner || keySaved();
+      $('key-card-value').value = owner ? owner.key : '';
+      $('key-card-share').hidden = !navigator.share;
+      $('key-card-status').textContent = '';
+    }
+
     function remember() {
       // Cache the credential so the browser can sign in again. Scores are read from the server.
       options.store(ownerKey, owner ? { id: owner.id, key: owner.key } : null);
@@ -176,6 +184,7 @@ var SharedBoard = (function () {
       organizerKey.value = '';
       draftAttempt = null;
       show('owner');
+      showKeyCard();
       canonical(result, offline);
       rememberRecent(result);
       setStatus(offline ? I18n.t('Офлайн. Новые результаты будут сохранены в очереди.') : I18n.t('Турнир загружен с сервера.'));
@@ -188,6 +197,7 @@ var SharedBoard = (function () {
       connected = false;
       dirty = false;
       remember();
+      showKeyCard();
       $('organizer-key').value = '';
       $('share-link').value = '';
       shareStatus.textContent = '';
@@ -423,8 +433,7 @@ var SharedBoard = (function () {
         var created = await request('POST', '', { id: draftAttempt.id, snapshot: draftAttempt.snapshot }, draftAttempt);
         created = await request('GET', draftAttempt.id, null, draftAttempt);
         activate(created, draftAttempt);
-        $('organizer').open = true;
-        setStatus(I18n.t('Турнир создан. Сообщите игрокам код, а ключ организатора сохраните в настройках.'));
+        setStatus(I18n.t('Турнир создан. Сохраните ключ организатора и сообщите игрокам код.'));
       } catch {
         accessStatus.textContent = I18n.t('Не удалось подтвердить создание турнира. Нажмите кнопку ещё раз.');
       } finally {
@@ -446,23 +455,41 @@ var SharedBoard = (function () {
         owner = null;
         $('organizer-key').value = '';
       }
+      showKeyCard();
       show('choose');
       accessStatus.textContent = '';
     });
     $('resume-tournament').addEventListener('click', tryResume);
 
-    async function copy(value, input, message) {
+    async function copy(value, input, message, status) {
+      status = status || shareStatus;
       try {
         await navigator.clipboard.writeText(value);
-        shareStatus.textContent = message;
+        status.textContent = message;
       } catch {
         if (input) {
           if (input.id === 'organizer-key' && input.type === 'password') $('key-reveal').click();
           input.select();
         }
-        shareStatus.textContent = input ? I18n.t('Скопируйте выделенный текст.') : I18n.t('Скопируйте код вверху страницы.');
+        status.textContent = input ? I18n.t('Скопируйте выделенный текст.') : I18n.t('Скопируйте код вверху страницы.');
       }
     }
+
+    $('key-card-copy').addEventListener('click', function () {
+      if (owner) copy(owner.key, $('key-card-value'), I18n.t('Ключ скопирован.'), $('key-card-status'));
+    });
+    $('key-card-share').addEventListener('click', function () {
+      if (!owner) return;
+      navigator.share({
+        title: I18n.t('Ключ организатора'),
+        text: I18n.t('Код турнира: ') + display(owner.code) + '\n' + I18n.t('Ключ организатора: ') + owner.key
+      }).catch(function () {});
+    });
+    $('key-card-done').addEventListener('click', function () {
+      if (!owner) return;
+      options.store('tt-key-saved:' + owner.id, owner.key.slice(0, 8));
+      showKeyCard();
+    });
 
     $('share-code-copy').addEventListener('click', function () {
       if (owner) copy(display(owner.code), null, I18n.t('Код скопирован.'));
@@ -494,6 +521,7 @@ var SharedBoard = (function () {
         remember();
         $('organizer-key').value = replacement;
         options.store('tt-rotation:' + owner.id, null);
+        showKeyCard();
         shareStatus.textContent = I18n.t('Ключ заменён. Сохраните новый ключ.');
       } catch {
         shareStatus.textContent = I18n.t('Замена не подтверждена. Обновите страницу для проверки ключа.');

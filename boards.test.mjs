@@ -9,6 +9,7 @@ function setup() {
   db.exec(readFileSync(new URL('./database/boards.sql', import.meta.url), 'utf8'));
   db.exec(readFileSync(new URL('./database/tournament-codes.sql', import.meta.url), 'utf8'));
   db.exec(readFileSync(new URL('./database/tournament-lifecycle.sql', import.meta.url), 'utf8'));
+  db.exec(readFileSync(new URL('./database/creation-limits.sql', import.meta.url), 'utf8'));
   const binding = {
     prepare(sql) {
       const stmt = db.prepare(sql);
@@ -25,8 +26,9 @@ function setup() {
   };
   return {
     db,
-    async call(method, path, body, key, etag, origin = 'https://tennis.test') {
+    async call(method, path, body, key, etag, origin = 'https://tennis.test', ip) {
       const headers = { Origin: origin };
+      if (ip) headers['CF-Connecting-IP'] = ip;
       if (body !== undefined) headers['Content-Type'] = 'application/json';
       if (key) headers.Authorization = 'Bearer ' + key;
       if (etag) headers['If-Match'] = etag;
@@ -106,7 +108,9 @@ test('a player code reads the tournament and the organizer key resumes edits fro
   const saved = await call('PUT', '/' + resumed.id, next, secret, organizer.headers.get('ETag'));
   assert.equal(saved.status, 200);
   assert.deepEqual((await (await call('GET', share)).json()).snapshot, next);
-  assert.ok(db.prepare('SELECT expires_at FROM boards WHERE id = ?').get(id).expires_at > 2147483647);
+  const expires = db.prepare('SELECT expires_at FROM boards WHERE id = ?').get(id).expires_at;
+  const idle = Math.floor(Date.now() / 1000) + 180 * 24 * 60 * 60;
+  assert.ok(Math.abs(expires - idle) < 60, 'an edit keeps an unfinished tournament for 180 more days');
 });
 
 test('an older tournament link still works and the scorekeeper can recover a player code', async () => {
@@ -153,4 +157,30 @@ test('finalize locks edits, reopen preserves the archived snapshot, and organize
   assert.equal((await call('POST', '/' + id + '/key', { key: wrongSecret }, secret)).status, 204);
   assert.equal((await call('GET', '/' + created.code, undefined, secret)).status, 403);
   assert.equal((await call('GET', '/' + created.code, undefined, wrongSecret)).status, 200);
+});
+
+function newId(n) { return '00000000-0000-4000-8000-' + String(n).padStart(12, '0'); }
+
+test('one client cannot use up tournament creation for everyone', async () => {
+  const { call, db } = setup();
+  for (let n = 0; n < 10; n++) {
+    assert.equal((await call('POST', '', { id: newId(n), snapshot }, secret, undefined, undefined, '203.0.113.5')).status, 201);
+  }
+  assert.equal((await call('POST', '', { id: newId(10), snapshot }, secret, undefined, undefined, '203.0.113.5')).status, 429);
+  assert.equal((await call('POST', '', { id: newId(11), snapshot }, secret, undefined, undefined, '198.51.100.7')).status, 201);
+  const creators = db.prepare('SELECT DISTINCT creator FROM boards').all().map(row => row.creator);
+  assert.ok(creators.every(value => /^[0-9a-f]{32}$/.test(value)), 'raw IP addresses are not stored');
+});
+
+test('finished tournaments are kept, reopened ones expire again when idle', async () => {
+  const { call, db } = setup();
+  const full = structuredClone(snapshot);
+  full.data.scores = [['11', '5']];
+  await call('POST', '', { id, snapshot: full }, secret);
+  const expiry = () => db.prepare('SELECT expires_at FROM boards WHERE id = ?').get(id).expires_at;
+  assert.ok(expiry() < 2147483647);
+  assert.equal((await call('POST', '/' + id + '/finalize', undefined, secret, '"1"')).status, 200);
+  assert.ok(expiry() > 2147483647);
+  assert.equal((await call('POST', '/' + id + '/reopen', undefined, secret, '"2"')).status, 200);
+  assert.ok(expiry() < 2147483647);
 });

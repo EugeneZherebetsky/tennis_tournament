@@ -301,6 +301,28 @@ QR-код для входа игрока|Player QR code
 Дождитесь синхронизации перед обновлением.|Wait for scores to sync before updating.
 Обновляем приложение…|Updating the app…
 Дождитесь сохранения перед сменой языка.|Wait for changes to save before switching languages.
+Участники|Players
+Расписание и счёт|Schedule and scores
+Игра|Game
+Настройки|Settings
+Разделы турнира|Tournament sections
+Проверить|Review
+Изменить|Edit
+Ввести счёт|Enter score
+Поделиться|Share
+Я сохранил ключ|I saved the key
+Сохраните ключ организатора|Save your organizer key
+Без ключа нельзя управлять турниром с другого устройства или после очистки браузера. Любой, у кого есть код и ключ, может менять результаты.|Without this key you cannot manage the tournament from another device or after clearing the browser. Anyone with the code and the key can change results.
+Код турнира:|Tournament code:
+Ключ организатора:|Organizer key:
+Турнир создан. Сохраните ключ организатора и сообщите игрокам код.|Tournament created. Save your organizer key and share the player code.
+Создать турнир|Create tournament
+Игроки откроют его по коду, ссылке или QR-коду.|Players open it with the code, link, or QR code.
+Перенести данные из локального черновика|Import data from the local draft
+Играть без интернета|Play offline
+Турнир хранится только на этом устройстве, без кода для игроков.|Saved only on this device, without a player code.
+«=» — у игроков одинаковые показатели, место делится.|"=" means the players have identical records and share the place.
+Начало примерно через|Starts in about
 APP_LANG|Language
 Раунд 1|Round 1`;
   var english = new Map(pairs.split('\n').map(function (line) { return line.split('|'); }));

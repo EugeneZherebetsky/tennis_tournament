@@ -40,7 +40,7 @@
 .match-toolbar .tbtns { align-items: center; gap: 5px; }
 .match-toolbar .tbtns button { min-height: 44px; padding: 5px 9px; }
 .tbtns .primary { flex: none; }
-#timer-controls summary,.match-nav a { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
+#timer-controls summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
 #timer-controls summary { justify-content: center; min-width: 44px; padding: 0 5px; font-size: 22px; }
 .timer-controls-menu {
   position: absolute;
@@ -53,22 +53,11 @@
   border-radius: 10px;
   background: #123d43;
 }
-.match-nav { display: grid; grid-template-columns: repeat(3,1fr); gap: 6px; margin-top: 5px; }
-.match-nav a {
-  justify-content: center;
-  padding: 3px 6px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--paper);
-  color: var(--accent);
-  font-weight: 700;
-  text-decoration: none;
-}
 a:focus-visible,button:focus-visible,summary:focus-visible,select:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-#schedule,#my-matches,#standings,.round,.match { scroll-margin-top: 135px; }
+#schedule,#my-matches,#standings,.round,.match { scroll-margin-top: 96px; }
 .organizer,.rules-panel {
   background: var(--paper);
   border: 1px solid var(--line);
@@ -107,7 +96,7 @@ a:focus-visible,button:focus-visible,summary:focus-visible,select:focus-visible 
 #my-fixtures li { margin-top: 6px; }
 .score-value { justify-self: end; font-weight: 700; font-variant-numeric: tabular-nums; }
 .player.win { color: var(--accent); }
-.match-edit { width: 100%; min-height: 44px; margin-top: 8px; color: var(--accent); }
+.match-edit { min-height: 44px; margin-top: 6px; color: var(--accent); }
 .section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .section-heading button { min-height: 44px; padding: 4px 9px; }
 .wins-full { display: none; }
@@ -168,13 +157,12 @@ body.report-open main > :not(#results-report) { display: none !important; }
   .match-toolbar .timerbar { gap: 4px 6px; }
   .match-toolbar .tbtns { gap: 0; }
   .match-toolbar .tbtns .primary { padding-inline: 6px; font-size: 14px; }
-  #timer-controls summary { min-width: 34px; }
   .tinfo span { font-size: 12px; }
 }
 @media(max-width: 360px) {
   .match-toolbar .timerbar { grid-template-areas: "info clock" "btns btns" "prog prog"; }
   .match-toolbar .tbtns .primary { flex: 1; }
-  #schedule,#my-matches,#standings,.round,.match { scroll-margin-top: 160px; }
+  #schedule,#my-matches,#standings,.round,.match { scroll-margin-top: 130px; }
 }
 @media print {
   .match-toolbar,#standings-detail,.match-edit,#sharing,#my-matches,#score-dialog,.tournament-session { display: none !important; }
@@ -226,3 +214,106 @@ header .language button {
 #archives-panel { margin: 10px 0; }
 .round[hidden] { display: none !important; }
 @media print { .language,.sync-banner,#toggle-rounds,#archives-panel { display:none!important; } }
+
+/* ---------- Tabs ---------- */
+.tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  padding: 4px max(8px, env(safe-area-inset-left)) calc(4px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-right));
+  background: var(--paper); border-top: 1px solid var(--line);
+  box-shadow: 0 -4px 16px rgb(18 61 67 / .08);
+}
+.tabbar button {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  min-height: 52px; padding: 4px; border: 0; border-radius: 10px; background: transparent;
+  color: var(--muted); font-size: 13px; font-weight: 600;
+}
+.tabbar button[hidden] { display: none; }
+.tabbar svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.tabbar button[aria-current="page"] { color: var(--accent); background: var(--tab-active); }
+body:has(.tabbar:not([hidden])) main { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
+@media screen {
+  body[data-view="play"] [data-view]:not([data-view="play"]),
+  body[data-view="table"] [data-view]:not([data-view="table"]),
+  body[data-view="setup"] [data-view]:not([data-view="setup"]) { display: none !important; }
+}
+body.report-open .tabbar { display: none; }
+.organizer { background: none; border: 0; padding: 0; margin-top: 0; }
+.organizer > section { margin: 15px 0 0; }
+
+/* Header and timer shrink once the tournament is running */
+body.started header .metrics, body.started #matchsummary { display: none; }
+body.started header { padding-block: 14px; }
+body.started header h1 { margin-bottom: 0; }
+.match-toolbar.compact .tinfo span { display: none; }
+.match-toolbar.compact .timerbar { padding-block: 5px; }
+.match-toolbar.compact .tclock { font-size: clamp(22px, 5vw, 32px); }
+.match-toolbar .tbtns #tskip { min-width: 44px; }
+
+/* Match cards: tap anywhere to enter the score */
+.match { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; align-content: start; }
+.match > .tabletag, .match > .matchrow { grid-column: 1 / -1; }
+.match > .state { grid-column: 1; align-self: center; }
+.match > .match-edit { grid-column: 2; align-self: end; }
+.match.tappable { cursor: pointer; transition: background-color .15s; }
+.match.tappable:hover { background: var(--match-hover); }
+
+/* Quick winner buttons in the score dialog */
+.quick-win { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; font-size: 13px; color: var(--muted); }
+.quick-win button { min-height: 44px; overflow-wrap: anywhere; }
+
+/* Landing page */
+button.wide { display: block; width: 100%; max-width: 360px; min-height: 48px; font-weight: 700; }
+#resume-tournament { margin-bottom: 16px; }
+#create-options { margin-top: 0; padding-top: 0; border-top: 0; }
+#join-options, #offline-option { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+#offline-option .notice { margin-top: 6px; }
+#access-status:empty { display: none; }
+button.linkish { min-height: 44px; padding: 4px 0; border: 0; background: none; color: var(--accent); text-decoration: underline; }
+
+/* Organizer key card */
+.key-card { border: 2px solid #ccae69; background: var(--warn-bg); }
+.key-card h2 { font-size: 19px; }
+#key-card-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+#key-card-status:empty { display: none; }
+
+/* Comfortable touch targets */
+summary { padding-block: 10px; }
+.format label { min-height: 44px; }
+.format input { width: 18px; height: 18px; }
+#tournament-access label.time-finish { color: var(--ink); }
+
+/* "My matches" stays one row for organizers until they pick themselves */
+#my-matches.minimal { padding-block: 8px; }
+#my-matches.minimal h2 { display: none; }
+.eta { color: var(--muted); font-size: 14px; }
+.eta:empty { display: none; }
+
+/* ---------- Colours and dark mode ---------- */
+:root { --tab-active: #e2f2ef; --match-hover: #eaf3f2; --warn-bg: #fff5dd; --input-bg: #fff; --button-bg: #fff; --match-bg: #f4f8f8; }
+@media screen and (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --ink: #e3eced; --muted: #9db0b5; --line: #2c3f44; --accent: #3fc1ad; --paper: #172428; --bg: #0e171a;
+    --tab-active: #1f3a3b; --match-hover: #223236; --warn-bg: #3a3116; --input-bg: #0f1b1e; --button-bg: #1d2d31; --match-bg: #1c2b2f;
+  }
+  input, select, .player-picker select { background: var(--input-bg); color: var(--ink); border-color: #3b5258; }
+  button { background: var(--button-bg); color: var(--ink); border-color: #3b5258; }
+  button.primary { color: #06201c; }
+  button.linkish, .tabbar button { background: transparent; }
+  .tabbar button[aria-current="page"] { background: var(--tab-active); }
+  .match { background: var(--match-bg); }
+  .round.current { background: #14302f; }
+  .rest { color: #f1d9a0; background: #3a3116; }
+  .winner, .my-current:not(:empty), .report-outcome { background: #18362f; }
+  .timeline div { background: #1f3236; }
+  .timeline .main { background: #1d3a36; }
+  .sync-banner { background: var(--warn-bg); border-color: #7a6427; }
+  .state.note { color: #e2c27a; }
+  .invalid, .state.invalid { color: #ff9c8f; }
+  .win, .player.win { color: var(--accent); }
+  #score-dialog { background: var(--paper); }
+  .report-table th { background: #1f3236; }
+  .join-qr { background: #fff; }
+}
+@media print { .tabbar { display: none !important; } }

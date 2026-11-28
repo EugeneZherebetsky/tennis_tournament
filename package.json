@@ -1,0 +1,10 @@
+{
+  "name": "tennis-tournament",
+  "private": true,
+  "description": "Round-robin table tennis tournament web app",
+  "engines": { "node": ">=22.5" },
+  "scripts": {
+    "test": "node --test tournament.test.cjs boards.test.mjs",
+    "check:sw": "node scripts/check-sw-version.mjs origin/main"
+  }
+}
